@@ -1,0 +1,144 @@
+import java.awt.Dimension;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.io.File;
+
+import javax.swing.JFrame;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+
+public class AssemblerInterface extends JFrame implements ActionListener {
+	
+	// member variables / window controls
+	private static final long serialVersionUID = 1L;
+	
+	JMenuBar windowMenuBar;
+	
+	JMenu fileMenu;
+	JMenu optionsMenu;
+	JMenu buildMenu;
+	
+	JMenuItem saveCodeFileItem;
+	JMenuItem saveCodeFileAsItem;
+	JMenuItem openCodeFileItem;
+	JMenuItem newCodeFileItem;
+	
+	JMenuItem assemblerOptionsItem;
+	JMenuItem changeFontItem;
+	
+	JMenuItem buildCodeItem;
+	JMenuItem testCodeItem;
+	
+	JTabbedPane documentsPane;
+
+	// public AssemblerInterface(): Constructor method
+	public AssemblerInterface () {
+		
+		// construct the menu
+		windowMenuBar = new JMenuBar ();
+		
+		fileMenu    = new JMenu ("File");
+		optionsMenu = new JMenu ("Options");
+		buildMenu   = new JMenu ("Build");
+		
+		newCodeFileItem    = new JMenuItem ("New File");
+		openCodeFileItem   = new JMenuItem ("Open File");
+		saveCodeFileItem   = new JMenuItem ("Save File");
+		saveCodeFileAsItem = new JMenuItem ("Save File As...");
+		
+		assemblerOptionsItem = new JMenuItem ("Assembler Options");
+		changeFontItem = new JMenuItem ("Choose Editor Font");
+		
+		buildCodeItem = new JMenuItem ("Build EXE");
+		testCodeItem  = new JMenuItem ("Run EXE in new ToyVM");
+		
+		documentsPane = new JTabbedPane ();
+		
+		// add the menu bar to the window
+		setJMenuBar (windowMenuBar);
+		
+		windowMenuBar.add (fileMenu);
+		windowMenuBar.add (optionsMenu);
+		windowMenuBar.add (buildMenu);
+		
+		fileMenu.add (newCodeFileItem);
+		fileMenu.add (openCodeFileItem);
+		fileMenu.add (saveCodeFileItem);
+		fileMenu.add (saveCodeFileAsItem);
+		
+		optionsMenu.add (assemblerOptionsItem);
+		optionsMenu.add (changeFontItem);
+		
+		buildMenu.add (buildCodeItem);
+		buildMenu.add (testCodeItem);
+		
+		documentsPane.setPreferredSize(new Dimension (700, 500));
+		add (documentsPane);
+		
+		pack ();
+		setTitle ("Virtual Machine Assembler IDE");
+		setVisible (true);
+		setDefaultCloseOperation (EXIT_ON_CLOSE);
+	}
+	
+	// public void actionPerformed (ActionEvent e): Handle button presses and other window events
+	public void actionPerformed (ActionEvent e) {
+		
+		if (e.getSource () == newCodeFileItem) {
+			
+			CodeDocument newDoc = new CodeDocument ();
+			documentsPane.addTab (newDoc.getTabName(), newDoc);
+		}
+	}
+	
+	// public static void main (String [] args): Main method
+	public static void main (String [] args) {
+		
+		new AssemblerInterface ();
+	}
+}
+
+// class CodeDocument: information on code documents
+class CodeDocument extends JTextArea implements KeyListener {
+
+	// member variables
+	private static final long serialVersionUID = 1L;
+	
+	File associatedName;		// the name of this code document
+	boolean contentChanged;		// did the content of this file change?
+	String originalText;		// the contents that this control had at startup
+	String tabName;				// the associated tab name for this document
+	
+	// default constructor. Used with a new code file
+	public CodeDocument () {
+		
+		originalText = "";
+		contentChanged = false;
+		tabName = "Untitled File";
+		
+		// add this class as a keylistener for the textarea
+		addKeyListener (this);
+	}
+	
+	// public String getTabName (): Return the tab name
+	public String getTabName () { return tabName; }
+	
+	// ignore these two functions. Only handle keyTyped
+	public void keyPressed  (KeyEvent e) { }
+	public void keyReleased (KeyEvent e) { }
+
+	// this function handles document change events
+	public void keyTyped (KeyEvent e) {
+		
+		// on keypresses we need to know whether the content changed
+		if (getText().equals(originalText))
+			contentChanged = false;
+		else
+			contentChanged = true;
+	}
+}

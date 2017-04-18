@@ -1,0 +1,879 @@
+package toyAssembler;
+
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.io.DataInputStream;
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
+import java.util.LinkedList;
+import java.util.Queue;
+
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+
+public class MachineInterface extends JFrame implements ActionListener, Runnable {
+	
+	private static final long serialVersionUID = 1L;
+	
+	// display mode constants
+	private int [] rows = { 20, 25, 40  };
+	private int [] cols = { 40, 80, 100 };
+	
+	// member variables
+	private JTextArea   machineConsole;
+	private JButton     startButton;
+	private JMenuBar    topMenu;
+	private JMenu       programList;
+	private JMenuItem   viewRegisters, viewMemory, setStartIP;
+	
+	// primitive variables
+	private boolean threadLives;
+	private int currentVMode;
+	
+	// machine control thread
+	private Thread machineThread;
+	
+	// ToyProcessor instance
+	private ToyProcessor mainProcessor;
+	private KeyboardController keyCtrl;
+	private DiskController diskCtrl;
+	private SystemClock sysClock;
+	
+	GridBagLayout winLayout;
+	GridBagConstraints gbc;
+	
+	// public MachineInterface () constructor method
+	public MachineInterface () {
+	
+		// initialize the layout
+		winLayout = new GridBagLayout ();
+		gbc       = new GridBagConstraints ();
+		
+		this.setLayout (winLayout);
+	
+		// initialize our thread to dead and our processor to 64k of memory
+		threadLives = false;
+		currentVMode = 0x01;
+		
+		mainProcessor = new ToyProcessor (32*1024, false);
+		mainProcessor.storeMemory ((short) currentVMode, 0x2000);
+	
+		// set up the keyboard controller with default mappings
+		keyCtrl = new KeyboardController (mainProcessor, 0x20F0, 0x20F1, 0x20F2);
+		sysClock = new SystemClock (mainProcessor, 0x20FA, 0x20FB, 0x20FC, 0x20FD);
+		
+		// make a new disk controller. Delete the disk controller file on exit!
+		// this disk controller is a temporary controller of size 64 Kilobytes
+		diskCtrl = new DiskController (1024*64, 0x21F0, 0x21F1, 0x21F2, 0x21F3, 0x21F4, 0x21F5);
+		diskCtrl.setRefMachine(mainProcessor);
+		
+		// initialize the controls
+		machineConsole = new JTextArea   ();
+		startButton    = new JButton     ("Start Machine");
+		
+		// add the keyboard controller as our key listener
+		machineConsole.addKeyListener(keyCtrl);		
+		machineConsole.grabFocus();
+		
+		// set up the menus
+		topMenu         = new JMenuBar ();
+		programList     = new JMenu ("Program");
+		viewRegisters   = new JMenuItem ("View Registers");
+		viewMemory      = new JMenuItem ("View Memory");
+		setStartIP      = new JMenuItem ("Set Start IP");
+		
+		// add the options to the optionList
+		programList.add (viewRegisters);
+		programList.add (viewMemory);
+		programList.add (setStartIP);
+		
+		// add the lists to the topMenu
+		topMenu.add (programList);
+		
+		// set up the menu for this window
+		this.setJMenuBar (topMenu);
+		
+		// add the controls to the window
+		gbc.fill = GridBagConstraints.BOTH;
+		gbc.weightx = 1.0;
+		gbc.weighty = 3.0;
+		addComponent (machineConsole, 1, 1, 4, 3);
+		
+		gbc.weighty = 1.0;
+		gbc.fill = GridBagConstraints.NONE;
+		addComponent (startButton, 1, 4, 1, 1);
+		
+		// set up actionListeners
+		startButton.addActionListener (this);
+		viewRegisters.addActionListener (this);
+		viewMemory.addActionListener (this);
+		setStartIP.addActionListener (this);
+		
+		// set up font for console window
+		machineConsole.setEditable (false);
+		machineConsole.setFont (new Font ("Courier New", Font.PLAIN, 12));
+		machineConsole.setRows (25);
+		machineConsole.setColumns (80);
+		machineConsole.setBackground(Color.BLACK);
+		machineConsole.setForeground(Color.WHITE);
+		
+		// set up video memory
+		for (int i = 0; i < 2000; i++)		
+			mainProcessor.storeMemory((short) ' ', i+0x1000); 
+	
+		// open the window and set everything up
+		pack ();
+		setResizable (false);
+		setDefaultCloseOperation (DISPOSE_ON_CLOSE);
+		setTitle("Toy Virtual Machine");
+	}
+	
+	// open this window (debug assembler version!)
+	public void displayMachine () { setVisible (true); }
+	
+	// add a control to the window using the GridBagConstraints
+	public void addComponent (Component c, int x, int y, int width, int height) {
+		
+		gbc.gridx = x;
+		gbc.gridy = y;
+		gbc.gridwidth  = width;
+		gbc.gridheight = height;
+		
+		winLayout.setConstraints (c, gbc);
+		this.add (c);
+	}
+
+	// public void updateDisplay (): Read the display memory and place it's contents
+	// in the display area
+	public void updateDisplay () {
+		
+		String displayUpdate = "";
+		short [] displayRegion = mainProcessor.getMemoryRegion (0x1000, 0x1000+(rows[currentVMode]*cols[currentVMode]));
+		
+		for (int i = 0; i < rows[currentVMode]; i++) {
+			
+			for (int j = 0; j < cols[currentVMode]; j++)
+				displayUpdate += (char) displayRegion[(i*cols[currentVMode])+j];
+			
+			displayUpdate += '\n';
+		}
+		
+		machineConsole.setText (displayUpdate);
+		
+		// check for a mode change
+		int newMode = mainProcessor.getMemory (0x2000);
+		
+		if (newMode != currentVMode && newMode < rows.length) {
+			
+			currentVMode = newMode;
+			machineConsole.setRows(rows[currentVMode]);
+			machineConsole.setColumns(cols[currentVMode]);
+			machineConsole.setText ("");
+			pack ();
+		}
+	}
+	
+	// run method for thread
+	public void run () {
+		
+		// declare an update counter for the display
+		// int updateCounter = 0;
+		int updateCounter = 0;
+		
+		while (threadLives) {
+			
+			// fetch and process the opcode. On processOpcode = true
+			// we have received the stop signal
+			sysClock.updateTsc ();
+			mainProcessor.fetchOpcode ();
+			
+			if (mainProcessor.processOpcode() == false)
+				threadLives = false;
+			
+			if (updateCounter <= 0) {
+				
+				updateDisplay ();
+				keyCtrl.updateKeyboardController();
+				diskCtrl.updateDiskController();
+				sysClock.updateSystemClock();
+				
+				updateCounter = 10;
+			}
+			
+			else
+				updateCounter--;
+		}
+		
+		updateDisplay ();
+		keyCtrl.updateKeyboardController();
+		diskCtrl.updateDiskController();
+		sysClock.updateSystemClock();
+		
+		System.out.println ("Processor finished execution.");
+		startButton.setText ("Start Machine");
+	}
+	
+	// method to load a program from a file (for debug running)
+	// this method is the only way to load code in the version included in the IDE!!!
+	public void loadCodeIntoMachine (String toLoad, int origin, boolean debugMode) {
+		
+		try {
+			
+			DataInputStream fileInput = new DataInputStream (new FileInputStream (toLoad));
+			short codeByte = fileInput.readShort ();
+			int i = origin;
+			
+			try {
+				
+				while (codeByte >= 0) {
+				
+					mainProcessor.storeMemory (codeByte, i++);
+					codeByte = fileInput.readShort ();
+				}
+				
+			} catch (EOFException e) {
+				
+				System.out.println ("Finished loading file!");
+			}
+			
+			fileInput.close ();
+			mainProcessor.setRegister (origin, ToyProcessor.constRegIP);
+			
+			if (debugMode)
+				mainProcessor.turnDebugModeOn ();
+			
+			machineConsole.grabFocus();
+			
+		} catch (Exception exc) {
+			
+			JOptionPane.showMessageDialog(this, "File I/O Error: " + exc.toString ());
+		}
+	}
+	
+	// action listener for this window
+	public void actionPerformed (ActionEvent e) {
+		
+		// if the start button was pressed control the machine's running state
+		if (e.getSource () == this.startButton) {
+			
+			// if the code is running, stop it
+			if (threadLives && machineThread != null) {
+				
+				try {
+					
+					// stop the machine thread and wait for it to finish
+					threadLives = false;
+					machineThread.join();
+					
+					// set the button text to "Start Machine"
+					startButton.setText ("Start Machine");
+					
+				} catch (InterruptedException exc) {
+					
+					System.out.println ("Interrupted while waiting for machine to finish running!");
+					exc.printStackTrace ();
+				}
+			}
+			
+			// if the code is NOT running, start a new instance
+			else if (threadLives == false) {
+				
+				machineThread = new Thread (this);
+				machineThread.start ();
+				
+				startButton.setText ("Stop Machine");
+				threadLives = true;
+			}
+		}
+		
+		// if we are supposed to load the test program load some test code
+		// into memory and adjust IP
+		// ITEM STRIPPED FOR ASSEMBLER FINAL REVISION!!!
+		
+		// if we are showing the registers build a register dump string and
+		// make a message box
+		else if (e.getSource () == this.viewRegisters) {
+		
+			// build a register string
+			String regString = "";
+			
+			regString += "Register A: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegA))  + "     ";			
+			regString += "Register B: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegB))  + "\n";
+			regString += "Register C: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegC))  + "     ";
+			regString += "Register X: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegX))  + "\n";
+			regString += "Register Y: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegY))  + "     ";
+			regString += "Register IP: " + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegIP)) + "\n";
+			regString += "Register S: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegS))  + "     ";
+			regString += "Register D: "  + String.format ("%04x", mainProcessor.getRegister (ToyProcessor.constRegD))  + "\n";
+			
+			JOptionPane.showMessageDialog (this, regString);
+		}
+		
+		// if someone wants to view memory open a memory dialog
+		else if (e.getSource () == viewMemory)
+			new MemoryViewDialog (mainProcessor);
+		
+		// if we want to set the IP to start with, do it
+		// ADDED FOR ASSEMBLER DEBUG VERSION!
+		else if (e.getSource () == setStartIP) {
+			
+			String numString = JOptionPane.showInputDialog("Enter start IP:");
+			int base = 10;
+			
+			if (numString == null)
+				return;
+
+			if (numString.endsWith ("h")) {
+				
+				base = 16;
+				numString = numString.replace('h', ' ').trim ();
+			}
+			
+			try {
+				
+				int ip = Integer.parseInt (numString, base);
+				mainProcessor.setRegister(ip, ToyProcessor.constRegIP);
+				
+			} catch (NumberFormatException exc) {
+				
+				JOptionPane.showMessageDialog(null, "Bad number format: " + numString);
+				return;
+			}
+		}
+		
+		// if we are supposed to change the look and feel do so
+		// STRIPPED FOR ASSEMBLER REVISION!!!
+		
+		// load a code file
+		// STRIPPED FOR ASSEMBLER REVISION!!!
+		machineConsole.grabFocus();
+	}
+	
+	// main method
+	// STRIPPED FOR ASSEMBLER DEBUG REVISION!!!
+}
+
+// class DiskController: Define a disk controller for this machine
+class DiskController implements Serializable {
+
+	private static final long serialVersionUID = 1L;
+	
+	// control register one content definitions
+	private static final short GET_REVISION = 0x01;
+	private static final short RESET_DISK   = 0x02;
+	private static final short SET_DISK_PTR = 0x03;
+	private static final short GET_DISK_PTR = 0x04;
+	
+	// control register two content definitions
+	private static final short GET_DISK_BYTE   = 0x01;
+	private static final short STORE_DISK_BYTE = 0x02;
+	private static final short GET_DISK_WORD   = 0x03;
+	private static final short STORE_DISK_WORD = 0x04;
+	private static final short INC_DISK_PTR    = 0x05;
+	private static final short DEC_DISK_PTR    = 0x06;
+	
+	// member variables
+	private static final String vendorId = "ToyDisk 1.0";
+	
+	private ToyProcessor refMachine;
+	private int ctrlRegOne;
+	private int ctrlRegTwo;
+	private int dataRegisterOneLow, dataRegisterOneHi, dataRegisterTwoLo, dataRegisterTwoHi;
+	private short [] diskContents;
+	private int diskPtr;
+	
+	public DiskController (int sz, int ctrlOne, int ctrlTwo, int regOneLo, int regOneHi, int regTwoLo, int regTwoHi) {
+		
+		// set up the pointers to the control registers
+		// the disk controller will read information from these areas
+		ctrlRegOne = ctrlOne;
+		ctrlRegTwo = ctrlTwo;
+		
+		dataRegisterOneLow = regOneLo;
+		dataRegisterOneHi  = regOneHi;
+		dataRegisterTwoLo  = regTwoLo;
+		dataRegisterTwoHi  = regTwoHi;
+		
+		diskPtr = 0;
+		
+		diskContents = new short [sz];
+	}
+	
+	// public static DiskController loadDisk (): load a disk instance from a file
+	public static DiskController loadDisk (File toRead) {
+		
+		try {
+			
+			ObjectInputStream instream = new ObjectInputStream (new FileInputStream (toRead));
+			return (DiskController) instream.readObject();
+			
+		} catch (Exception e) {
+			
+			JOptionPane.showMessageDialog(null, "Error opening disk file: " + e.toString ());
+		}
+		
+		return null;
+	}
+	
+	// public static void storeDisk (): Store a disk instance to a file
+	public static void storeDisk (File toWrite, DiskController toStore) {
+		
+		try {
+			
+			ObjectOutputStream outstream = new ObjectOutputStream (new FileOutputStream (toWrite));
+			outstream.writeObject(toStore);
+		
+		} catch (Exception e) {
+			
+			JOptionPane.showMessageDialog (null, "Error saving disk file: " + e.toString ());
+		}
+	}
+	
+	// public void setRefMachine (): Setup the machine that this disk refers to
+	public void setRefMachine (ToyProcessor ref) { refMachine = ref; }
+	
+	// public void resetDiskPtr (): Sets the disk pointer to zero
+	// public void incDiskPtr   (): Increments the disk ptr, wraps to zero if bigger than disk!
+	// public void decDiskPtr   (): Decrements the disk ptr, wraps to end of disk if less than zero!
+	public void resetDiskPtr () { diskPtr = 0; }
+	public void incDiskPtr   () { diskPtr++; if (diskPtr >= diskContents.length) diskPtr = 0; }
+	public void decDiskPtr   () { diskPtr--; if (diskPtr < 0) diskPtr = diskContents.length-1;  }
+	
+	// public int getDiskPtr (): Get the current disk pointer
+	public int getDiskPtr () { return diskPtr; }
+	
+	// public void storeContent (short content): Store a byte (short) to the disk
+	public void storeDiskByte (short diskByte) {
+		
+		// cannot be out of range of byte!!!
+		if (diskByte > 0xff) return;
+		
+		// store the byte at the current ptr
+		diskContents[diskPtr] = diskByte;
+	}
+	
+	// public short getDiskByte (): Get a byte (short) from the disk
+	public short getDiskByte () {
+		
+		return diskContents[diskPtr];
+	}
+	
+	// public void updateDiskController (): Check for disk controller updates
+	public void updateDiskController () {
+		
+		int ctrlByteOne = refMachine.getMemory (ctrlRegOne);
+		int ctrlByteTwo = refMachine.getMemory (ctrlRegTwo);
+		
+		// first sort out the control bytes
+		processControlByteOne (ctrlByteOne);
+		processControlByteTwo (ctrlByteTwo);
+		
+		// now reset them to zero, undefined
+		refMachine.storeMemory ((short) 0x00, ctrlRegOne);
+		refMachine.storeMemory ((short) 0x00, ctrlRegTwo);
+	}
+	
+	// public void processControlByteOne (int ctrlByte): Process the given control byte by register one rules
+	public void processControlByteOne (int ctrlByte) {
+		
+		int loc = 0;
+		
+		// process the byte
+		switch (ctrlByte) {
+		
+		case GET_REVISION:
+			
+			// put the revision string into memory at the given memory location in (dataRegisterOneHi << 8) | dataRegisterOneLow
+			loc = ((refMachine.getMemory(dataRegisterOneHi) << 8) | refMachine.getMemory(dataRegisterOneLow));
+			for (int i = 0; i < vendorId.length(); i++)
+				refMachine.storeMemory((short) vendorId.charAt(i), loc+i);
+
+			break;
+			
+		case RESET_DISK:
+			
+			// reset the disk's pointer register
+			diskPtr = 0;
+			break;
+			
+		case SET_DISK_PTR:
+			
+			// set the disk's pointer register to the value in the data registers
+			loc = ((refMachine.getMemory (dataRegisterTwoHi) << 24) | (refMachine.getMemory(dataRegisterTwoLo) << 16) |
+					(refMachine.getMemory(dataRegisterOneHi) << 8) | refMachine.getMemory(dataRegisterOneLow));
+			
+			// see if the location is out of the range we need. It should not be less than zero and it should not be
+			// greater than the size of the disk
+			if (loc < 0 || loc >= diskContents.length)
+				break;
+			
+			// otherwise we can set it!
+			diskPtr = loc;
+			break;
+			
+		case GET_DISK_PTR:
+			
+			// process the disk pointer into the data registers
+			short loc_lo_one = (short) (diskPtr & ~0xffffff00);
+			short loc_hi_one = (short) ((diskPtr >> 8) & ~0xffff00);
+			short loc_lo_two = (short) ((diskPtr >> 16) & ~0xff00);
+			short loc_hi_two = (short) (diskPtr >> 24);
+			
+			// store the disk pointer into the data registers
+			refMachine.storeMemory(loc_lo_one, dataRegisterOneLow);
+			refMachine.storeMemory(loc_hi_one, dataRegisterOneHi);
+			refMachine.storeMemory(loc_lo_two, dataRegisterTwoLo);
+			refMachine.storeMemory(loc_hi_two, dataRegisterTwoHi);
+			
+			break;
+		}
+	}
+	
+	// public void processControlByteTwo (int ctrlByte): Process the given control byte by register two rules
+	public void processControlByteTwo (int ctrlByte) {
+		
+		switch (ctrlByte) {
+		
+		case GET_DISK_BYTE:
+			
+			// get a byte from the current disk pointer and store it in the first data register
+			refMachine.storeMemory (diskContents[diskPtr], dataRegisterOneLow);
+			break;
+			
+		case STORE_DISK_BYTE:
+			
+			// get a byte from the first data register and store it at the current disk pointer
+			diskContents[diskPtr] = refMachine.getMemory(dataRegisterOneLow);
+			refMachine.storeMemory((short) 0x00, dataRegisterOneLow);
+			
+			break;
+			
+		case GET_DISK_WORD:
+			
+			// get a word from the current disk pointer and store it in the first data register set
+			refMachine.storeMemory (diskContents[diskPtr], dataRegisterOneLow);
+			refMachine.storeMemory (diskContents[diskPtr+1], dataRegisterOneHi);
+			break;
+			
+		case STORE_DISK_WORD:
+			
+			// get a word from the first data register set and store it at the current disk pointer
+			diskContents[diskPtr]   = refMachine.getMemory (dataRegisterOneLow);
+			diskContents[diskPtr+1] = refMachine.getMemory (dataRegisterOneHi);
+			break;
+			
+		case INC_DISK_PTR:
+			
+			// increment the disk pointer
+			diskPtr++;
+			if (diskPtr >= diskContents.length) diskPtr = 0;
+			break;
+			
+		case DEC_DISK_PTR:
+			
+			// decrement the disk pointer
+			diskPtr--;
+			if (diskPtr < 0) diskPtr = diskContents.length-1;
+			break;
+		}
+	}
+}
+
+//class SystemClock: Define a system clock for this machine
+class SystemClock {
+	
+	// member variables
+	ToyProcessor refMachine;
+	private int hourRegister, minuteRegister, secondRegister;
+	private int tscRegister;
+	
+	// constructor
+	public SystemClock (ToyProcessor ref, int hrReg, int minReg, int secReg, int tscReg) {
+		
+		refMachine = ref;
+		hourRegister   = hrReg;
+		minuteRegister = minReg;
+		secondRegister = secReg;
+		tscRegister    = tscReg;
+		
+		// get the current time into the registers
+		Calendar currentTime = new GregorianCalendar ();
+		
+		refMachine.storeMemory((short) currentTime.get(Calendar.HOUR), hourRegister);
+		refMachine.storeMemory((short) currentTime.get(Calendar.MINUTE), minuteRegister); 
+		refMachine.storeMemory((short) currentTime.get(Calendar.SECOND), secondRegister);
+		refMachine.storeMemory((short) 0x0, tscRegister);
+	}
+	
+	// public void updateTsc (): Increment the time stamp counter
+	public void updateTsc () {
+		
+		refMachine.storeMemory((short) (refMachine.getMemory(tscRegister)+1), tscRegister);
+	}
+	
+	// public void updateSystemClock (): Update the time in the clock
+	public void updateSystemClock () {
+		
+		Calendar currentTime = new GregorianCalendar ();
+		
+		refMachine.storeMemory((short) currentTime.get(Calendar.HOUR), hourRegister);
+		refMachine.storeMemory((short) currentTime.get(Calendar.MINUTE), minuteRegister);
+		refMachine.storeMemory((short) currentTime.get(Calendar.SECOND), secondRegister);
+	}
+}
+
+// class KeyboardController: Define a keyboard controller for this machine
+class KeyboardController implements KeyListener {
+	
+	// constants
+	private static final String vendorId = "ToyKeys 1.0";
+	
+	private static final short GET_REVISION  = 0x01;
+	private static final short CLEAR_QUEUE   = 0x02;
+	private static final short REMAP_CONTROL = 0x03;
+	// private static final short REMAP_DATA    = 0x04;
+	private static final short REQUEST_KEY   = 0x05;
+	
+	// member variables
+	private Queue<Short> typedKeys;
+	private ToyProcessor referenceMachine;
+	private int controlRegister;
+	private int dataRegisterLo, dataRegisterHi;
+	
+	// constructor method
+	public KeyboardController (ToyProcessor ref, int ctrlReg, int dataRegLow, int dataRegHi) {
+	
+		// set up pointers to the registers
+		typedKeys = new LinkedList<Short>();
+		referenceMachine = ref;
+		controlRegister = ctrlReg;
+		dataRegisterLo = dataRegLow;
+		dataRegisterHi = dataRegHi;
+	}
+	
+	// keyTyped captures input data into the Key queue
+	public void keyTyped (KeyEvent e) {
+		
+		// add the key typed to the queue
+		if (e.getKeyChar() == '\n' || e.getKeyChar() == '\r')
+			typedKeys.add ((short) 10);
+		else
+			typedKeys.add((short) e.getKeyChar());
+	}
+	
+	// public short getNextKey (): returns the next key from the queue
+	public short getNextKey () {
+		
+		// return the next item from the queue!
+		if (typedKeys.peek() == null)
+			return 0xff;
+		else
+			return typedKeys.remove();
+	}
+	
+	// public void updateKeyboardController (): Run the controller
+	public void updateKeyboardController () {
+		
+		// first check the status of the control register.
+		int ctrlRegValue = referenceMachine.getMemory (controlRegister);
+		
+		// did someone request the revision string?
+		if (ctrlRegValue == GET_REVISION) {
+			
+			// store the revision string into memory at the location
+			// given in the data registers
+			int regLo = referenceMachine.getMemory(dataRegisterLo);
+			int regHi = referenceMachine.getMemory(dataRegisterHi);
+			
+			int storageLoc = (regHi << 8) | regLo;
+			
+			for (int i = 0; i < vendorId.length(); i++)
+				referenceMachine.storeMemory((short) vendorId.charAt(i), i+storageLoc);
+			
+			// store a successful result at the location
+			referenceMachine.storeMemory((short) 0x00, dataRegisterLo);
+		}
+		
+		// did someone request to clear the key queue?
+		else if (ctrlRegValue == CLEAR_QUEUE) {
+			
+			// just clear the key queue
+			typedKeys.clear();
+		}
+		
+		// did someone request to remap the control register?
+		else if (ctrlRegValue == REMAP_CONTROL) {
+			
+			// set the control register equal to the value
+			// in the data register
+			controlRegister = referenceMachine.getMemory ((short) ((dataRegisterHi << 8)|dataRegisterLo));
+		}
+		
+		// did someone request to remap the data register?
+		else if (ctrlRegValue == REQUEST_KEY) {
+			
+			// the key value goes in the lo data register
+			if (typedKeys.peek() == null)
+				referenceMachine.storeMemory ((short) 0xff, dataRegisterLo);
+			else
+				referenceMachine.storeMemory ((short) typedKeys.remove(), dataRegisterLo);
+		}
+		
+		// clear the control register
+		referenceMachine.storeMemory ((short) 0x00, controlRegister);
+	}
+	
+	// unused KeyListener methods
+	public void keyPressed  (KeyEvent e) {}
+	public void keyReleased (KeyEvent e) {}
+}
+
+// class MemoryViewDialog: Implement a dialog to view segments of memory
+class MemoryViewDialog extends JDialog implements ActionListener {
+
+	private static final long serialVersionUID = 1L;
+	private JTextField startAddressField;
+	private JTextField countField;
+	private JLabel     startAddressFieldLabel;
+	private JLabel     countFieldLabel;
+	private JTextArea  outputArea;
+	private JButton    displayContentButton;
+	
+	ToyProcessor refMachine;
+	
+	GridBagLayout dialogLayout;
+	GridBagConstraints gbc;
+	
+	public MemoryViewDialog (ToyProcessor memoryReference) {
+		
+		refMachine = memoryReference;
+		
+		dialogLayout = new GridBagLayout ();
+		gbc = new GridBagConstraints ();
+		setLayout (dialogLayout);
+		
+		// create the controls
+		startAddressField      = new JTextField ();
+		countField             = new JTextField ();
+		startAddressFieldLabel = new JLabel ("Start Address:");
+		countFieldLabel        = new JLabel ("Count:");
+		outputArea             = new JTextArea (10, 75);
+		displayContentButton   = new JButton ("Get Memory");
+		
+		// set the font for the outputArea
+		outputArea.setFont (new Font ("Courier New", Font.PLAIN, 12));
+		outputArea.setEditable(false);
+		
+		// add the controls to the window
+		gbc.insets = new Insets (15, 5, 15, 5);
+		gbc.fill = GridBagConstraints.BOTH;
+		addComponent (startAddressFieldLabel, 0, 0, 1, 1);
+		addComponent (countFieldLabel, 0, 1, 1, 1);
+		addComponent (startAddressField, 1, 0, 1, 1);
+		addComponent (countField, 1, 1, 1, 1);
+		addComponent (new JScrollPane (outputArea), 0, 3, 2, 1);
+		
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		addComponent (displayContentButton, 0, 2, 1, 1);
+		displayContentButton.addActionListener(this);
+		
+		pack ();
+		setTitle ("Memory Viewer");
+		setModal (true);
+		setVisible (true);
+	}
+	
+	// addComponent (): add a component
+	public void addComponent (Component c, int x, int y, int width, int height) {
+		
+		gbc.gridx = x;
+		gbc.gridy = y;
+		gbc.gridwidth = width;
+		gbc.gridheight = height;
+		
+		dialogLayout.setConstraints (c, gbc);
+		add (c);
+	}
+	
+	public void actionPerformed (ActionEvent e) {
+		
+		if (e.getSource () == displayContentButton) {
+			
+			// get the starting address and the count
+			try {
+				
+				int startAddr = Integer.parseInt(startAddressField.getText());
+				int count     = Integer.parseInt(countField.getText());
+			
+				// if count > 0x7fff print an error message
+				if (count > 0x7fff || startAddr > 0x7fff) {
+					
+					JOptionPane.showMessageDialog (this, "Error: Field is out of acceptable range! Max is 0x7fff");
+					return;
+				}
+				
+				else if (startAddr + count > 0x7fff) {
+					
+					JOptionPane.showMessageDialog (this, "Error: Fields must combine to be less than 0x7fff!");
+					return;
+				}
+				
+				// build an output string using those values
+				String taContent = "";
+				int currentLine = 0;
+				boolean lineStart = true;
+				
+				for (int i = 1; i < count+1; i++) {
+					
+					// is this the start of a line?
+					if (lineStart) {
+						
+						taContent += String.format ("%04X:", (currentLine+startAddr)*16);
+						lineStart = false;
+					}
+					
+					// add the current memory location to the string
+					taContent += " " + String.format("%02X", refMachine.getMemory(startAddr+(i-1)));
+					
+					// did we reach the end of a line?
+					if (i % 16 == 0) {
+						
+						lineStart = true;
+						taContent += "\n";
+						currentLine++;
+					}
+				}
+				
+				outputArea.setText (taContent);
+				
+			} catch (NumberFormatException exc) {
+				
+				JOptionPane.showMessageDialog (this, "Error with number format for either start address or count!");
+			}
+		}
+	}
+}

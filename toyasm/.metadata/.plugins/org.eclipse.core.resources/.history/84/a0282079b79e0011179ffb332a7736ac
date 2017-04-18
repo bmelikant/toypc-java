@@ -1,0 +1,551 @@
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.StreamTokenizer;
+import java.util.ArrayList;
+
+// class ToyAssembler: Define an interface to the assembler for the Toy Virtual Machine
+public class ToyAssembler {
+	
+	// main method for the ToyAssembler
+	public static void main (String [] args) {
+		
+		String inputName = "", outputName = "default.txe", listName = "";
+		
+		// read the command line arguments and set up the session variables
+		if (args.length < 1) {
+			
+			System.out.println ("Error: no input file specified!");
+			System.exit (-1);
+		}
+		
+		// input name is always the first argument
+		inputName = args[0];
+		listName = inputName + ".lst";
+		
+		// other arguments are ignored for now
+		Assembler myAssembler = new Assembler (inputName, outputName, listName, "Toy Assembler v1.0");
+		
+		// if the build failed display an error result
+		if (myAssembler.assemble() == false) {
+			
+			myAssembler.displayAssemblyErrors ();
+			System.out.println ("Build failed!");
+			System.exit (-1);
+		}
+		
+		// otherwise dump a succeeded result
+		myAssembler.displayAssemblyInformation ();
+		System.out.println ("Build succeeded!");
+		System.exit (0);
+	}
+}
+
+// class Assembler: define an Assembler for the Toy Virtual Machine
+class Assembler {
+	
+	// lookup lists
+	public static final String [] oneByteOps = { "nop", "hlt", "cpuid", "pshf", "popf", "stfz", "stfa", "stfc", "stfe", "stfg",
+		"stfl", "stfd", "stfo", "clfz", "clfa", "clfc", "clfe", "clfg", "clfl", "clfd", "clfo" };
+	
+	public static final String [] twoByteOps = { "sta", "stb", "stc", "stx", "sty", "sts", "std", "lda", "ldb", "ldc", "ldx", "ldy", "lds", "ldd",
+			"ada", "adb", "adc", "adx", "ady", "ads", "add", "sba", "sbb", "sbc", "sbx", "sby", "sbs", "sbd", "mla", "mlb", "mlc", "mlx", "mly",
+			"dva", "dvb", "dvc", "dvx", "dvy", "mda", "mdb", "mdc", "mdx", "mdy", "psha", "pshb", "pshc", "pshx", "pshy",
+			"popa", "popb", "popc", "popx", "popy", "shla", "shlb", "shlc", "shlx", "shly", "shra", "shrb", "shrc", "shrx", "shry",
+			"jmp", "je", "jne", "jg", "jng", "jl", "jnl", "jz", "jnz",
+			"ana", "anb", "anc", "anx", "any", "ora", "orb", "orc", "orx", "ory", "xora", "xorb", "xorc", "xorx", "xory", 
+			"cmpa", "cmpb", "cmpc", "cmpx", "cmpy", "cmps", "cmpd" };
+	
+	public static final String [] directives = { "db", "dd", "resb", "resw", "org", "exesize" };
+	public static final String [] registers  = { "a", "b", "c", "x", "y", "s", "d" };
+	public static final short  [] regDefines = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
+	
+	public static final short [] oneByteOpNums = { 0x00, 0x10, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20, 0x21, 0x22,
+		0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D };
+	
+	public static final short [] twoByteOpNums = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+			0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x05,
+			0x06, 0x06, 0x06, 0x06, 0x06, 0x07, 0x07, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x08, 0x08,
+			0x09, 0x09, 0x09, 0x09, 0x09, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B,
+			0x0F, 0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F, 0x8F,
+			0x11, 0x11, 0x11, 0x11, 0x11, 0x12, 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13, 0x13, 
+			0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14 };
+	
+	public static final short [] twoByteDefRM = { 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x10, 0x20, 0x30, 0x40, 0x50 };
+	
+	// member variables
+	LabelParser firstPass;
+	
+	// constructor
+	public Assembler (String srcFile, String destFile, String lstFile, String version) {
+		
+		firstPass = new LabelParser (srcFile, lstFile);
+	}
+	
+	// public boolean assemble (): Assemble the associated source file
+	public boolean assemble () {
+
+		// call firstPass () to generate a symbol table to pass to secondPass ()
+		boolean badPass = firstPass.generateSymbolTable ();
+		
+		// if the first pass failed display the error log and exit
+		if (badPass) {
+			
+			System.out.println ("Bad assembly! Error list:\n\n");
+			System.out.println (firstPass.getErrorList());
+		}
+		
+		return false;
+	}
+
+	// public void displayAssemblyErrors (): Print out the assembly errors
+	public void displayAssemblyErrors () {
+	}
+	
+	// public void displayAssemblyInformation (): Print out the assembly information
+	public void displayAssemblyInformation () {
+	}
+}
+
+// class LabelParser: define a parser that will generate a list file/symbol table
+class LabelParser {
+	
+	// member variables
+	String errorList;
+	boolean errorFlag;
+	File listingFile;
+	LexicalAnalyzer labelAnalyzer;
+	SymbolTable codeSymbols;
+	int currentLocation;
+	
+	// constructor
+	public LabelParser (String srcFile, String listFile) {
+		
+		listingFile = new File (listFile);
+		labelAnalyzer = new LexicalAnalyzer (new File (srcFile));
+		errorFlag = false;
+		errorList = "";
+		codeSymbols = new SymbolTable ();
+		currentLocation = 0;
+	}
+	
+	// return the error list
+	public String getErrorList () { return errorList; }
+	public SymbolTable getSymbolTable () { return codeSymbols; }
+	
+	// public boolean generateSymbolTable (): generate a symbol table from the given code
+	public boolean generateSymbolTable () {
+		
+		// try to open the list file
+		try {
+			
+			listingFile.createNewFile();
+			OutputStreamWriter listWriter = new OutputStreamWriter (new FileOutputStream (listingFile));
+			listWriter.write ("# Assembly Listing\n\n");
+			
+			// run lexical analyzer and process the results
+			String analysis = labelAnalyzer.analyzeNextLine();
+			System.out.println ("Analysis: " + analysis);
+			
+			while (!analysis.equals ("EOF")) {
+			
+				// print the line number to the list file
+				listWriter.append ("" + labelAnalyzer.getCurrentLine() + "\t");
+				
+				// now parse the line
+				String [] tokens = analysis.split (" ");
+				int tokenIndex = 0;
+			
+				// see if the first argument is a label
+				if (tokens[tokenIndex].startsWith ("Label=")) {
+				
+					// get the label from the token, digest any colons that occur
+					String label = tokens[tokenIndex].substring(tokens[tokenIndex].indexOf('=')+1);
+					if (label.endsWith(":"))
+						label = label.substring(0, label.lastIndexOf(':'));
+					
+					boolean labelExists = codeSymbols.addSymbol(label, currentLocation);
+					
+					// if the label is already in the list the assembly has failed!
+					if (labelExists) {
+						
+						errorFlag = true;
+						
+						errorList += "Error (Line " + labelAnalyzer.getCurrentLine() + "): " + labelAnalyzer.getCurrentLineContents() + "\n"
+								+ "Label redifinition\n\n";
+						listWriter.append ("\n");
+						
+						continue;
+					}
+				
+					// increment the current token and pass to the next statement
+					tokenIndex++;
+					listWriter.append (label);
+				}
+			
+				// always dump a tab to the list file here!
+				listWriter.append ("\t");
+				
+				// see if the first (or possibly second) argument is an opcode
+				if (tokens[tokenIndex].startsWith("OneByteOpcode=") || tokens[tokenIndex].startsWith("TwoByteOpcode=")) {
+					
+					// look up the opcode and store it in the intermediate code structure
+					IntermediateCodeEntry nextEntry = new IntermediateCodeEntry ();
+					String mnemonic = tokens[tokenIndex].substring(tokens[tokenIndex].indexOf('='));
+					short opcode = lookupOpcode (mnemonic);
+					
+					// if we couldn't find the opcode our lexical analyzer isn't working right!
+					if (opcode == -1) {
+						
+						errorFlag = true;
+						errorList += "Error (Line " + labelAnalyzer.getCurrentLine () + "): Internal assembler error!";
+						listWriter.append ("\n");
+						continue;
+					}
+					
+					// store the opcode. Now the code branches
+					nextEntry.opcode = opcode;
+					
+					if (tokens[tokenIndex].startsWith("OneByteOpcode=")) {
+						
+						// increment the token. If there is an additional argument we have a problem!
+						tokenIndex++;
+						if (!tokens[tokenIndex].equals("EOL") && !tokens[tokenIndex].equals("EOF")) {
+							
+							errorFlag = true;
+							errorList += "Error (Line " + labelAnalyzer.getCurrentLine () + "): " + labelAnalyzer.getCurrentLineContents() + "\n"
+									+ "Invalid combination of opcode and operands!";
+							listWriter.append ("\n");
+							continue;
+						}
+					}
+					
+					else if (tokens[tokenIndex].startsWith("TwoByteOpcode=")) {
+						
+					}
+				}
+			
+				// see if the first or second argument is a directive
+				else if (tokens[tokenIndex].startsWith("Directive=")) {
+				
+				}
+			
+				// see if the first or second argument is EOL or EOF
+				else if (tokens[tokenIndex].equals ("EOL")) {
+				
+					analysis = labelAnalyzer.analyzeNextLine ();
+					listWriter.append ("\n");
+				}
+				
+				// if the next argument is EOF we have to exit this loop!
+				else if (tokens[tokenIndex].equals("EOF"))
+					break;
+			
+				// otherwise we have a problem!
+				else {
+				
+					errorFlag = true;
+					errorList += "Error (Line " + labelAnalyzer.getCurrentLine () + "): " + labelAnalyzer.getCurrentLineContents() + "\n"
+						+ "Invalid combination of opcode and operands\n\n";
+				}
+				
+				listWriter.append ("\n");
+			}
+			
+			listWriter.flush();
+			listWriter.close();
+		}
+		
+		catch (IOException e) {
+			
+			System.out.println ("I/O Error - Could not open listing file: " + e.toString());
+			System.exit (-1);
+		}
+		return errorFlag;
+	}
+	
+	// public short lookupOpcode (String mnemonic): Find the correct opcode
+	public short lookupOpcode (String mnemonic) {
+		
+		// first search the oneByteOpcodes list
+		for (int i = 0; i < Assembler.oneByteOps.length; i++) {
+			
+			if (mnemonic.equals (Assembler.oneByteOps[i]))
+				return Assembler.oneByteOpNums[i];
+		}
+		
+		// now search the twoByteOpcodes list
+		for (int i = 0; i < Assembler.twoByteOps.length; i++) {
+			
+			if (mnemonic.equals (Assembler.twoByteOps[i]))
+				return Assembler.twoByteOpNums[i];
+		}
+		
+		return -1;
+	}
+}
+
+// class LexicalAnalyzer: define a lexical analyzer for the Toy Virtual Machine
+class LexicalAnalyzer {
+	
+	// input file and analyzer
+	File inputFile;
+	String fileData;
+	StreamTokenizer analyzer;
+	String currentLineContents;
+	
+	public LexicalAnalyzer (File toTokenize) {
+		
+		// set up this analyzer
+		try {
+			
+			inputFile = toTokenize;
+			BufferedReader fileReader = new BufferedReader (new InputStreamReader (new FileInputStream (inputFile)));
+			String inputLine = "";
+			fileData = "";
+			
+			while ((inputLine = fileReader.readLine()) != null)
+				fileData += inputLine + "\n";
+		
+			System.out.println ("File data:\n" + fileData);
+			
+			resetAnalzyer (fileData);
+			fileReader.close ();
+			
+		} catch (IOException e) {
+			
+			System.out.println ("Error opening file: " + e.toString ());
+			System.exit (-1);
+		}
+	}
+	
+	// public void resetAnalyzer (): Setup this analzyer for use. Called first time from constructor
+	public void resetAnalzyer (String input) {
+		
+		// try to initialize the analyzer
+		analyzer = new StreamTokenizer (new BufferedReader (new InputStreamReader (new ByteArrayInputStream (input.getBytes()))));
+			
+		// now set up the tokens to parse
+		// commas delimit separators outside of strings
+		analyzer.whitespaceChars (',', ',');
+		analyzer.ordinaryChars ('0', '9');
+			
+		analyzer.wordChars('0', ':');
+		analyzer.wordChars('#', '$');
+			
+		// set up string delimiters
+		analyzer.quoteChar ('"');
+		analyzer.quoteChar ('\'');
+			
+		// set up comment character
+		analyzer.commentChar(';');
+			
+		// make sure end of line is significant here!
+		analyzer.eolIsSignificant (true);
+	}
+	
+	// public String analyzeNextLine (): Analyze the next line and return it
+	public String analyzeNextLine () {
+		
+		try {
+			
+			String analysis = "";
+			currentLineContents = "";
+			int tokenType = analyzer.nextToken ();
+		
+			// read tokens and add them to the analysis as long as there are tokens left
+			while (tokenType != StreamTokenizer.TT_EOL && tokenType != StreamTokenizer.TT_EOF) {
+				
+				// check for wrong token types
+				if (tokenType != StreamTokenizer.TT_WORD && tokenType != '"' && tokenType != '\'')
+					System.out.println ("Found invalid token type: " + tokenType);
+				else
+					System.out.println ("Found token type: " + tokenType);
+				
+				String token = analyzer.sval;
+				System.out.println ("Token: " + token);
+				
+				// check for a string literal first.
+				if (tokenType == '"' || tokenType == '\'')
+					analysis += "StringLiteral=" + token + " ";
+				
+				// check for numbers. Numbers delimited by '#'
+				else if (token.startsWith ("#")) {
+					
+					// see if it's a hex number
+					if (token.endsWith ("h"))
+						analysis += "HexNumber=" + token.replace('#', ' ').replace('h', ' ').trim () + " ";
+					else if (token.endsWith("b"))
+						analysis += "BinaryNumber=" + token.replace('#', ' ').replace('b', ' ').trim () + " ";
+					else
+						analysis += "DecimalNumber=" + token.replace('#', ' ').trim () + " ";
+				}
+			
+				// check for memory reference delimited by '$'
+				else if (token.startsWith("$"))
+					analysis += "MemoryReference=" + token.replace('$', ' ').trim();
+				
+				// check to see if this argument is a register
+				else if (isRegister (token))
+					analysis += "Register=" + token + " ";
+				
+				// check to see if this is a one-byte opcode
+				else if (isOneByteOpcode (token))
+					analysis += "OneByteOpcode=" + token + " ";
+				
+				// check to see if this is a two-byte opcode
+				else if (isTwoByteOpcode (token))
+					analysis += "TwoByteOpcode=" + token + " ";
+				
+				// check to see if this is a directive
+				else if (isDirective (token))
+					analysis += "Directive=" + token + " ";
+				
+				// otherwise, it's a label!
+				else
+					analysis += "Label=" + token + " ";
+				
+				currentLineContents += token + " ";
+				tokenType = analyzer.nextToken ();
+			}
+			
+			if (tokenType == StreamTokenizer.TT_EOL)
+				analysis += "EOL";
+			
+			else if (tokenType == StreamTokenizer.TT_EOF)
+				analysis += "EOF";
+			
+			return analysis;
+			
+		} catch (IOException e) {
+		
+			System.out.println ("I/O Error reading analysis file: " + e.toString());
+			return "";
+		}
+	}
+	
+	// public int getCurrentLine (): return current line
+	public int getCurrentLine () { return analyzer.lineno(); }
+	public String getCurrentLineContents () { return currentLineContents; }
+	
+	// public boolean isRegister (String argument): See if this argument matches a register
+	public boolean isRegister (String argument) {
+		
+		for (int i = 0; i < Assembler.registers.length; i++) {
+			
+			if (argument.equals (Assembler.registers[i]))
+				return true;
+		}
+		
+		return false;
+	}
+	
+	// public boolean isOneByteOpcode (String argument): See if this argument matches a one byte opcode
+	public boolean isOneByteOpcode (String argument) {
+		
+		for (int i = 0; i < Assembler.oneByteOps.length; i++) {
+			
+			if (argument.equals (Assembler.oneByteOps[i]))
+				return true;
+		}
+		
+		return false;
+	}
+	
+	// public boolean isTwoByteOpcode (String argument): See if this argument matches a two byte opcode
+	public boolean isTwoByteOpcode (String argument) {
+		
+		for (int i = 0; i < Assembler.twoByteOps.length; i++) {
+			
+			if (argument.equals (Assembler.twoByteOps[i]))
+				return true;
+		}
+		
+		return false;
+	}
+	
+	// public boolean isDirective (String argument): See if this argument matches a directive
+	public boolean isDirective (String argument) {
+		
+		for (int i = 0; i < Assembler.directives.length; i++) {
+			
+			if (argument.equals (Assembler.directives[i]))
+				return true;
+		}
+		
+		return false;
+	}
+}
+
+// class SymbolTable: Define a symbol table
+class SymbolTable {
+
+	// member variables
+	private ArrayList<SymbolTableEntry> symTable;
+	
+	// constructor method
+	public SymbolTable () {
+		
+		// create the symbol table
+		symTable = new ArrayList<SymbolTableEntry>();
+	}
+	
+	// public boolean addSymbol (): Add a symbol to the table
+	public boolean addSymbol (String symbol, int addr) {
+		
+		for (int i = 0; i < symTable.size(); i++) {
+			
+			if (symTable.get(i).entryName.equals(symbol))
+				return true;
+		}
+		
+		symTable.add (new SymbolTableEntry (symbol, addr, true));
+		return false;
+	}
+}
+
+// class SymbolTableEntry: define a symbol table entry
+class SymbolTableEntry {
+	
+	public SymbolTableEntry (String name, int address, boolean found) {
+		
+		entryName = name;
+		addr = address;
+		refFound = found;
+	}
+	
+	// all members are public
+	public String  entryName;
+	public int     addr;
+	public boolean refFound;
+}
+
+class IntermediateCodeList {
+	
+	private ArrayList<IntermediateCodeEntry> codeList = new ArrayList<IntermediateCodeEntry>();
+	
+	// addCodeEntry (): add an entry to the list
+	public void addCodeEntry (IntermediateCodeEntry entry) {
+		
+		codeList.add (entry);
+	}
+}
+// class IntermediateCodeEntry: define an entry for intermediate code
+class IntermediateCodeEntry {
+	
+	public short opcode;
+	public short modrm;
+	public int memoryImmediate;
+	public String label;
+}

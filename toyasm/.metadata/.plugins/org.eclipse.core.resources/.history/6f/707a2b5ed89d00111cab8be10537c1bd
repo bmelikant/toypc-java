@@ -1,0 +1,187 @@
+import java.awt.Dimension;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.io.File;
+
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+
+public class AssemblerInterface extends JFrame implements ActionListener {
+	
+	// member variables / window controls
+	private static final long serialVersionUID = 1L;
+	int tabIdx;
+	
+	JMenuBar windowMenuBar;
+	
+	JMenu fileMenu;
+	JMenu optionsMenu;
+	JMenu buildMenu;
+	
+	JMenuItem saveCodeFileItem;
+	JMenuItem saveCodeFileAsItem;
+	JMenuItem openCodeFileItem;
+	JMenuItem newCodeFileItem;
+	
+	JMenuItem assemblerOptionsItem;
+	JMenuItem changeFontItem;
+	
+	JMenuItem buildCodeItem;
+	JMenuItem testCodeItem;
+	
+	JTabbedPane documentsPane;
+
+	// public AssemblerInterface(): Constructor method
+	public AssemblerInterface () {
+		
+		tabIdx = 0;
+		
+		// construct the menu
+		windowMenuBar = new JMenuBar ();
+		
+		fileMenu    = new JMenu ("File");
+		optionsMenu = new JMenu ("Options");
+		buildMenu   = new JMenu ("Build");
+		
+		newCodeFileItem    = new JMenuItem ("New File");
+		openCodeFileItem   = new JMenuItem ("Open File");
+		saveCodeFileItem   = new JMenuItem ("Save File");
+		saveCodeFileAsItem = new JMenuItem ("Save File As...");
+		
+		assemblerOptionsItem = new JMenuItem ("Assembler Options");
+		changeFontItem = new JMenuItem ("Choose Editor Font");
+		
+		buildCodeItem = new JMenuItem ("Build EXE");
+		testCodeItem  = new JMenuItem ("Run EXE in new ToyVM");
+		
+		documentsPane = new JTabbedPane ();
+		
+		// add the menu bar to the window
+		setJMenuBar (windowMenuBar);
+		
+		windowMenuBar.add (fileMenu);
+		windowMenuBar.add (optionsMenu);
+		windowMenuBar.add (buildMenu);
+		
+		fileMenu.add (newCodeFileItem);
+		fileMenu.add (openCodeFileItem);
+		fileMenu.add (saveCodeFileItem);
+		fileMenu.add (saveCodeFileAsItem);
+		
+		optionsMenu.add (assemblerOptionsItem);
+		optionsMenu.add (changeFontItem);
+		
+		buildMenu.add (buildCodeItem);
+		buildMenu.add (testCodeItem);
+		
+		documentsPane.setPreferredSize(new Dimension (700, 500));
+		add (documentsPane);
+		
+		newCodeFileItem.addActionListener (this);
+		
+		pack ();
+		setTitle ("Virtual Machine Assembler IDE");
+		setVisible (true);
+		setDefaultCloseOperation (EXIT_ON_CLOSE);
+	}
+	
+	// public void actionPerformed (ActionEvent e): Handle button presses and other window events
+	public void actionPerformed (ActionEvent e) {
+		
+		if (e.getSource () == newCodeFileItem) {
+			
+			CodeDocument newDoc = new CodeDocument (documentsPane, tabIdx);
+			documentsPane.insertTab (newDoc.getTabName(), null, newDoc, newDoc.getTabName(), tabIdx);
+			documentsPane.setTabComponentAt(tabIdx++, new TabTitleWithClose (newDoc.getTabName()));
+		}
+	}
+	
+	// public static void main (String [] args): Main method
+	public static void main (String [] args) {
+		
+		new AssemblerInterface ();
+	}
+}
+
+// class CodeDocument: information on code documents
+class CodeDocument extends JTextArea implements KeyListener {
+
+	// member variables
+	private static final long serialVersionUID = 1L;
+	
+	JTabbedPane ownerPane;		// the tabbed pane that owns this CodeDocument
+	int myTabIndex;				// this CodeDocument's index in the tabbed pane
+	File associatedName;		// the name of this code document
+	boolean contentChanged;		// did the content of this file change?
+	String originalText;		// the contents that this control had at startup
+	String tabName;				// the associated tab name for this document
+	JButton closeButton;		// make a close button for the tab
+	
+	// Constructor used with a new code file
+	public CodeDocument (JTabbedPane myOwner, int myIdx) {
+		
+		originalText = "";
+		contentChanged = false;
+		tabName = "Untitled File*";
+		ownerPane = myOwner;
+		myTabIndex = myIdx;
+		
+		// add this class as a keylistener for the textarea
+		addKeyListener (this);
+	}
+	
+	// public String getTabName (): Return the tab name
+	public String getTabName () { return tabName; }
+	
+	// ignore these two functions. Only handle keyTyped
+	public void keyPressed  (KeyEvent e) { }
+	public void keyReleased (KeyEvent e) { }
+
+	// this function handles document change events
+	public void keyTyped (KeyEvent e) {
+		
+		// on keypresses we need to know whether the content changed
+		if (getText().equals(originalText)) {
+			
+			contentChanged = false;
+			
+			if (tabName.endsWith ("*")) {
+				
+				tabName = tabName.replace('*', ' ');
+				tabName = tabName.trim ();
+				ownerPane.setTitleAt(myTabIndex, tabName);
+			}
+		}
+		
+		else {
+			
+			contentChanged = true;
+			if (!tabName.endsWith ("*")) {
+				tabName += '*';
+				ownerPane.setTitleAt(myTabIndex, tabName);
+			}
+		}
+	}
+}
+
+// class TabTitleWithClose: Display a close button and a title in the tab title
+class TabTitleWithClose extends JPanel {
+	
+	public TabTitleWithClose (String label) {
+	
+		JButton closeButton = new JButton ("x");
+		closeButton.setPreferredSize (new Dimension (5, 5));
+		
+		add (new JLabel (label));
+		add (closeButton);
+	}
+}

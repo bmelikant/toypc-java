@@ -1,0 +1,1431 @@
+package toyAssembler;
+import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StreamTokenizer;
+import java.util.ArrayList;
+
+// class ToyAssembler: Define an interface to the assembler for the Toy Virtual Machine
+public class ToyAssembler {
+	
+	// main method for the ToyAssembler
+	public static void main (String [] args) {
+		
+		String inputName = "", outputName = "default.texe", listName = "";
+		
+		// read the command line arguments and set up the session variables
+		if (args.length < 1) {
+			
+			System.out.println ("Error: no input file specified!");
+			System.exit (-1);
+		}
+		
+		// input name is always the first argument
+		inputName = args[0];
+		listName = inputName + ".lst";
+		
+		// other arguments are ignored for now
+		Assembler myAssembler = new Assembler (inputName, outputName, listName, "Toy Assembler v1.0");
+		
+		// if the build failed display an error result
+		if (myAssembler.assemble() == false) {
+			
+			System.out.println ("Build failed!");
+			System.exit (-1);
+		}
+		
+		// otherwise dump a succeeded result
+		System.out.println ("Build succeeded!");
+		System.exit (0);
+	}
+}
+
+// class Assembler: define an Assembler for the Toy Virtual Machine
+class Assembler {
+	
+	// lookup lists
+	public static final String [] oneByteOps = { "nop", "hlt", "cpuid", "pshf", "popf", "stfz", "stfa", "stfc", "stfe", "stfg",
+		"stfl", "stfd", "stfo", "clfz", "clfa", "clfc", "clfe", "clfg", "clfl", "clfd", "clfo", "ldstr", "ststr", "ret",
+		"inca", "incb", "incc", "incx", "incy", "incs", "incd",
+		"deca", "decb", "decc", "decx", "decy", "decs", "decd",
+		"pshf", "popf", "pshall", "popall", "iret" };
+	
+	public static final String [] twoByteOps = { "sta", "stb", "stc", "stx", "sty", "sts", "std", "lda", "ldb", "ldc", "ldx", "ldy", "lds", "ldd",
+			"ada", "adb", "adc", "adx", "ady", "ads", "add", "sba", "sbb", "sbc", "sbx", "sby", "sbs", "sbd", "mla", "mlb", "mlc", "mlx", "mly",
+			"dva", "dvb", "dvc", "dvx", "dvy", "mda", "mdb", "mdc", "mdx", "mdy", "psh",
+			"pop", "shla", "shlb", "shlc", "shlx", "shly", "shra", "shrb", "shrc", "shrx", "shry", "call",
+			"jmp", "je", "jne", "jg", "jng", "jl", "jnl", "jz", "jnz", "jc", "jnc",
+			"ana", "anb", "anc", "anx", "any", "ora", "orb", "orc", "orx", "ory", "xora", "xorb", "xorc", "xorx", "xory", 
+			"cmpa", "cmpb", "cmpc", "cmpx", "cmpy", "cmps", "cmpd", "int" };
+	
+	public static final String [] directives = { "db", "dw", "resb", "resw", "org", "exesize" };
+	public static final String [] registers  = { "a", "b", "c", "x", "y", "s", "d" };
+	public static final short  [] regDefines = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
+	
+	public static final short [] oneByteOpNums = { 0x60, 0x10, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20, 0x21, 0x22,
+		0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x40, 0x41, 0x45,
+		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+		0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D,
+		0x16, 0x17, 0x50, 0x51, 0x46 };
+	
+	public static final short [] twoByteOpNums = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+			0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x05,
+			0x06, 0x06, 0x06, 0x06, 0x06, 0x07, 0x07, 0x07, 0x07, 0x07, 0x08,
+			0x09, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0E,
+			0x0F, 0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F, 0x8F, 0x9F, 0xAF,
+			0x11, 0x11, 0x11, 0x11, 0x11, 0x12, 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13, 0x13, 
+			0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x16 };
+	
+	public static final short [] twoByteDefRM = { 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x00,
+			0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50, 0x10, 0x20, 0x30, 0x40, 0x50,
+			0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x00 };
+	
+	// member variables
+	LabelParser firstPass;
+	CodeGenerator secondPass;
+	String destFile;
+	String errorList;
+	
+	// constructor
+	public Assembler (String srcFile, String dstFile, String lstFile, String version) {
+		
+		firstPass = new LabelParser (srcFile, lstFile, version);
+		destFile = dstFile;
+	}
+	
+	// public boolean assemble (): Assemble the associated source file
+	public boolean assemble () {
+
+		// call firstPass () to generate a symbol table to pass to secondPass ()
+		boolean badPass = firstPass.generateSymbolTable ();
+		
+		// if the first pass failed display the error log and exit
+		if (badPass) {
+			
+			System.out.println ("Bad assembly! Error list:\n");
+			System.out.println (firstPass.getErrorList());
+			System.out.println ("Unable to recover from errors on first pass, ending...");
+			
+			errorList = firstPass.getErrorList ();
+			return true;
+		}
+		
+		// now we perform the second pass. Set up the code generator
+		secondPass = new CodeGenerator (firstPass.getCodeTable(), firstPass.getSymbolTable(), destFile, firstPass.getAssemblySize(), firstPass.getOrigin());
+		badPass = secondPass.generateCode();
+		
+		if (badPass) {
+			
+			System.out.println ("Bad assembly! Error list:\n");
+			System.out.println (secondPass.getErrorList ());
+			errorList = secondPass.getErrorList();
+			return true;
+		}
+		
+		System.out.println ("Assembly Succeeded!\n\n");
+		return false;
+	}
+	
+	public String getErrorList () { return errorList; }
+	
+	// public void redirectOutput (PrintStream outRedirect, PrintStream errRedirect): Redirect output if used with an IDE
+	public void redirectOutput (PrintStream outRedirect, PrintStream errRedirect) {
+		
+		// redirect the output to the new print streams
+		System.setOut(outRedirect);
+		System.setErr(errRedirect);
+	}
+}
+
+// class LabelParser: define a parser that will generate a list file/symbol table
+class LabelParser {
+	
+	// member variables
+	String errorList, asmVer;
+	boolean errorFlag;
+	File listingFile;
+	LexicalAnalyzer labelAnalyzer;
+	SymbolTable codeSymbols;
+	IntermediateCodeList codeTable;
+	int currentLocation;
+	short origin = 0;
+	
+	// constructor
+	public LabelParser (String srcFile, String listFile, String version) {
+		
+		listingFile = new File (listFile);
+		labelAnalyzer = new LexicalAnalyzer (new File (srcFile));
+		errorFlag = false;
+		errorList = "";
+		codeSymbols = new SymbolTable ();
+		currentLocation = 0;
+		origin = 0;
+		asmVer = version;
+		codeTable = new IntermediateCodeList ();
+	}
+	
+	// return the error list
+	public String getErrorList () { return errorList; }
+	public SymbolTable getSymbolTable () { return codeSymbols; }
+	public IntermediateCodeList getCodeTable () { return codeTable; }
+	
+	public int getAssemblySize () { return currentLocation; }
+	public short getOrigin () { return origin; }
+	
+	// public boolean generateSymbolTable (): generate a symbol table from the given code
+	public boolean generateSymbolTable () {
+		
+		// try to open the list file
+		try {
+			
+			listingFile.createNewFile();
+			PrintWriter listWriter = new PrintWriter (new BufferedOutputStream (new FileOutputStream (listingFile)));
+			
+			listWriter.println ("# Assembly Listing File ");
+			listWriter.println ("# " + asmVer);
+			listWriter.println ("# Program Start");
+			listWriter.println ();
+			
+			labelAnalyzer.runLexicalAnalysis();
+			
+			String token = "", currentLineContents = "";
+			int currentLine = 0;
+			
+			// read the info from the lexical analyzer and process it
+			while (!(token = labelAnalyzer.nextToken()).equals("NoMoreTokens")) {
+				
+				// this first test determines whether we are on a new line terminated by "EndOfFile"
+				if (token.equals ("EndOfFile")) {
+					
+					listWriter.println ();
+					listWriter.println ("# Program End");
+					break;
+				}
+				
+				// first print the current line number to the listing file, followed by a tab
+				currentLineContents += "" + currentLine + ":" + String.format("%04x", currentLocation+origin);
+				
+				// do we have a label? follow label tree logic
+				if (token.startsWith ("Label=")) {
+					
+					// separate the label out of the token
+					String label = token.substring(token.indexOf ('=')+1);
+					
+					// print the label to the list file then strip semicolons
+					currentLineContents += "\t" + label;
+					label = label.replace(':', ' ').trim ();
+					
+					// attempt to add the label to the assembly list. If it exists we will
+					// add it to our error list
+					if (codeSymbols.addSymbol (label, currentLocation) == true) {
+						
+						errorFlag = true;
+						errorList += "Error (Line " + currentLine + "): Label redefinition - " + label + "\n";
+						token = labelAnalyzer.skipToEOL ();
+					}
+					
+					// now since we found a label, we will fetch the next token to process.
+					else
+						token = labelAnalyzer.nextToken ();
+				}
+				
+				// if it ISN'T a label we still have to adjust the list file data as if it were
+				else
+					currentLineContents += "\t";
+				
+				// do we have a one-byte opcode? Follow one-byte opcode logic
+				if (token.startsWith("OneByteOpcode=")) {
+					
+					// process the one byte opcode. If it is followed by another token that ISN'T
+					// end-of-line we have a problem!
+					String mnemonic = token.substring (token.indexOf('=')+1);
+					short opcode = lookupOpcode (mnemonic);
+					
+					// write the opcode to the list file and then write it's value
+					// in the following column
+					currentLineContents += "\t" + String.format ("%02X", opcode) + "\t\t\t# " + mnemonic + " (one byte opcode)";
+					token = labelAnalyzer.nextToken();
+					
+					// remember we exit on any token but EndOfLine. If it is EndOfLine we let
+					// the EndOfLine handler handle it
+					if (!token.equals("EndOfLine") && !token.equals ("EndOfFile")) {
+						
+						errorFlag = true;
+						errorList += "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+						token = labelAnalyzer.skipToEOL();
+					}
+					
+					// if it is a good declaration the current location gets incremented to reflect the byte
+					// and an IntermediateCodeEntry gets built for this item
+					else {
+						
+						IntermediateCodeEntry codeEntry = new IntermediateCodeEntry ();
+						codeEntry.opcode = opcode;
+						codeEntry.directiveEntry = false;
+						codeEntry.entryAddr = (short) currentLocation;
+						codeEntry.instructionLine = currentLine;
+						
+						codeTable.addCodeEntry(codeEntry);
+						currentLocation++;
+					}
+				}
+				
+				// do we have a two-byte opcode? Follow two-byte opcode logic
+				else if (token.startsWith ("TwoByteOpcode=")) {
+					
+					IntermediateCodeEntry codeEntry = new IntermediateCodeEntry ();
+					codeEntry.entryAddr = (short) currentLocation;
+					
+					// process the two byte opcode. If a two-byte opcode is followed by a token other than
+					// a register, a number, or a memory reference it is in error!
+					String mnemonic = token.substring(token.indexOf ('=')+1);
+					short opcode = lookupOpcode (mnemonic);
+					
+					// first we have to determine the mod-rm value so we need to get the next token
+					// if the default modrm for a mnemonic is -1 we have an internal error!
+					short modrm   = lookupRegisterOneValue (mnemonic);
+					boolean register = false;
+					short memImmLo = -1;
+					short memImmHi = -1;
+					String label = "";
+					
+					if (modrm == -1) {
+						
+						errorFlag = true;
+						errorList += "Error (Line " + currentLine + "): Internal assembler error at Register One Lookup - " + mnemonic + "\n";
+						token = labelAnalyzer.skipToEOL ();
+					}
+					
+					else  {
+						
+						token = labelAnalyzer.nextToken ();
+					
+						// did we find a register argument?
+						if (token.startsWith("Register=")) {
+						
+							// we found a register argument.
+							short regTwo = lookupRegisterTwoValue (token.substring(token.indexOf ('=')+1));
+							
+							if (regTwo == -1) {
+							
+								errorFlag = true;
+								errorList += "Error (Line " + currentLine + "): Internal assembler error at Register Two lookup!\n";
+								labelAnalyzer.skipToEOL();
+							}
+						
+							else {
+								
+								// adjust the modrm to reflect regTwo
+								modrm |= regTwo;
+								currentLocation += 2;
+								register = true;
+							}
+						}
+					
+						// did we find a memory reference argument?
+						else if (token.startsWith ("MemoryRef=")) {
+						
+							// we found a memory reference. Set up the low nibble of the rm constant
+							// and try to parse the reference's value. Memory references are parsed as hex!
+							modrm |= 0x0A;
+							int memRef = 0;
+						
+							try {
+							
+								memRef = Integer.parseInt (token.substring(token.indexOf('=')+1), 16);
+							
+								short tstJmp = (short) (opcode & ~0xf0);
+								
+								if (tstJmp == 0x0f || opcode == 0x0e)
+									currentLocation += 3;
+								else
+									currentLocation += 4;
+							
+								memImmLo = (short) (memRef & ~0xff00);
+								memImmHi = (short) (memRef >> 8);
+								
+							} catch (NumberFormatException e) {
+							
+								errorFlag = true;
+								errorList += "Error (Line " + currentLine + "): Number format exception!\n";
+								token = labelAnalyzer.skipToEOL ();
+							}
+						}
+					
+						// did we find a decimal number?
+						else if (token.startsWith("DecNumber=") || token.startsWith("HexNumber=") || token.startsWith("BinNumber=")) {
+						
+							int immediate = 0;
+							
+							short tstJmp = (short)(opcode & ~0xf0);
+							
+							if (tstJmp == 0x0f || opcode == 0x0e) {
+								
+								errorFlag = true;
+								errorList = "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+								token = labelAnalyzer.skipToEOL();
+							}
+							
+							else {
+								
+								try {
+							
+									if (token.startsWith ("DecNumber="))
+										immediate = Integer.parseInt (token.substring(token.indexOf ('=')+1), 10);
+									else if (token.startsWith ("HexNumber="))
+										immediate = Integer.parseInt (token.substring(token.indexOf ('=')+1), 16);
+									else if (token.startsWith("BinNumber="))
+										immediate = Integer.parseInt (token.substring(token.indexOf ('=')+1), 2);
+							
+									if (immediate <= 0xff) {
+									
+										memImmLo = (short) (immediate & ~0xff00);
+										modrm |= 0x08;
+										currentLocation += 3;
+									}
+							
+									else if (immediate <= 0x7fff) {
+								
+										memImmLo = (short) (immediate & ~0xff00);
+										memImmHi = (short) (immediate >> 8);
+										modrm |= 0x09;
+										currentLocation += 4;
+									}
+							
+									else {
+								
+										errorFlag = true;
+										errorList = "Error (Line " + currentLine + "): Number out of range: " + immediate + "\n";
+										token = labelAnalyzer.skipToEOL();
+									}
+								
+								} catch (NumberFormatException e) {
+							
+									errorFlag = true;
+									errorList += "Error (Line " + currentLine + "): Number format exception!\n";
+									token = labelAnalyzer.skipToEOL();
+								}
+							}
+						}
+					
+						else if (token.startsWith("Label=")) {
+						
+							// all we do here is generate the label and set the modrm for memory access
+							modrm |= 0x0A;
+							label = token.substring(token.indexOf('=')+1);
+						
+							short tstJmp = (short) (opcode & ~0xf0);
+						
+							if (tstJmp == 0x0f || opcode == 0x0e)
+								currentLocation += 3;
+							else
+								currentLocation += 4;
+						}
+					
+						// otherwise we have a problem!
+						else {
+						
+							errorFlag = true;
+							errorList += "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+							token = labelAnalyzer.skipToEOL();
+						}
+					
+						codeEntry.opcode = opcode;
+						codeEntry.modrm  = modrm;
+					
+						if (memImmHi == -1)
+							codeEntry.memoryImmediate = (int) memImmLo;
+						else
+							codeEntry.memoryImmediate = (int) ((memImmHi << 8) | memImmLo);
+					
+						codeEntry.label = label;
+						codeEntry.instructionLine = currentLine;
+					
+						codeTable.addCodeEntry (codeEntry);
+					
+						// write the opcode, the modrm, and possibly the memImmLo and memImmHi values to the list file
+						short tstJmp = (short) (opcode & ~0xf0);
+					
+						if (tstJmp == 0x0f || opcode == 0x0e)
+							currentLineContents += "\t" + String.format ("%02X", opcode);
+						else if (opcode == 0x02 && (modrm == 0x6A || modrm == 0x7A))
+							currentLineContents += "\t" + String.format ("%02X %02X", opcode, modrm-1);
+						else
+							currentLineContents += "\t" + String.format ("%02X %02X", opcode, modrm);
+					
+						if (memImmLo != -1 && memImmHi != -1) {
+							if (tstJmp == 0x0f || opcode == 0x0e)
+								currentLineContents += String.format (" %02X %02X", memImmLo, memImmHi) + "\t\t# " + mnemonic + " " + token.substring(token.indexOf ('=')+1) + " (three byte opcode)";
+							else
+								currentLineContents += String.format (" %02X %02X", memImmLo, memImmHi) + "\t\t# " + mnemonic + " " + token.substring(token.indexOf ('=')+1) + " (four byte opcode)";
+						}
+					
+						else if (memImmLo != -1)
+							currentLineContents += String.format (" %2X", memImmLo) + "\t\t# " + mnemonic + " " + token.substring(token.indexOf('=')+1) + " (three byte opcode)";
+						else if (register)
+							currentLineContents += "\t\t\t# " + mnemonic + " " + token.substring(token.indexOf('=')+1) + " (two byte opcode)";
+						else if (!label.equals ("")) {
+							if (tstJmp == 0x0f || opcode == 0x0e)
+								currentLineContents += " " + label + "\t\t# " + mnemonic + " " + label + " (three byte opcode)";
+							else
+								currentLineContents += " " + label + "\t\t# " + mnemonic + " " + label + " (four byte opcode)";
+						}
+					
+						// after we process all of this we have to fetch the next token
+						// if it is not EndOfLine or EndOfFile we have an error!
+						token = labelAnalyzer.nextToken();
+					
+						if (!token.equals ("EndOfLine") && !token.equals("EndOfFile")) {
+						
+							errorFlag = true;
+							errorList += "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+							token = labelAnalyzer.skipToEOL ();
+						}
+					}
+				}
+				
+				// do we have a directive? Follow directive logic
+				else if (token.startsWith ("Directive=")) {
+					
+					// get the directive and store it in a new code entry
+					String directive = token.substring (token.indexOf('=')+1);
+					IntermediateCodeEntry codeEntry = new IntermediateCodeEntry ();
+					
+					codeEntry.directiveEntry = true;
+					codeEntry.directive = directive;
+					codeEntry.entryAddr = (short) currentLocation;
+					
+					// check for the origin directive
+					if (directive.equals ("org")) {
+						
+						// if the line number is not zero print an error message!
+						if (currentLine > 0) {
+							
+							System.out.println ("Warning: Origin must appear on first line; origin directive ignored!");
+							token = labelAnalyzer.skipToEOL();
+						}
+						
+						else {
+							
+							// get the next token. It must be a memory reference!
+							token = labelAnalyzer.nextToken();
+						
+							if (!token.startsWith ("MemoryRef=")) {
+							
+								errorFlag = true;
+								errorList += "Error (Line " + currentLine + "): Bad origin directive. Use $number to declare origin!\n";
+								token = labelAnalyzer.skipToEOL ();
+							}
+						
+							else {
+							
+								try {
+								
+									origin = (short) Integer.parseInt(token.substring(token.indexOf('=')+1), 16);
+									currentLineContents += "org " + origin + "\t\t\t# program origin: " + origin + "\n";
+									token = labelAnalyzer.nextToken();
+								
+									if (!token.equals("EndOfLine") && !token.equals ("EndOfFile")) {
+									
+										errorFlag = true;
+										errorList += "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+										token = labelAnalyzer.skipToEOL();
+									}
+								
+								} catch (NumberFormatException e) {
+								
+									errorFlag = true;
+									errorList += "Error (Line " + currentLine + "): Bad origin directive. Could not parse number!\n";
+								}
+							}
+						}
+					}
+					
+					// do we have a db directive?
+					else if (directive.equals ("db")) {
+						
+						// enter a loop, read tokens until the token equals end of line
+						// or an error occurs
+						token = labelAnalyzer.nextToken();
+						
+						while (!token.equals("EndOfLine") && !token.equals("EndOfFile")) {
+							
+							if (token.startsWith ("StringLiteral=")) {
+								
+								String strLiteral = token.substring (token.indexOf('=')+1);
+								codeEntry.directiveArguments.add (token);
+								
+								currentLocation += strLiteral.length();
+								
+								token = labelAnalyzer.nextToken();
+								currentLineContents += "\t\"" + strLiteral + "\"\t# string literal\n";
+							}
+							
+							else if (token.startsWith ("DecNumber=") || token.startsWith("HexNumber=") || token.startsWith ("BinNumber=")) {
+								
+								try {
+									
+									int number = 0;
+									
+									if (token.startsWith ("DecNumber="))
+										number = Integer.parseInt (token.substring(token.indexOf('=')+1), 10);
+									else if (token.startsWith ("HexNumber="))
+										number = Integer.parseInt (token.substring(token.indexOf('=')+1), 16);
+									else if (token.startsWith ("HexNumber="))
+										number = Integer.parseInt (token.substring(token.indexOf('=')+1), 2);
+									
+									codeEntry.directiveArguments.add(token);
+									
+									currentLocation++;
+									currentLineContents += "\t" + number + "\t# number declarator\n";
+									
+								} catch (NumberFormatException e) {
+									
+									errorFlag = true;
+									errorList += "Error (Line " + currentLine + "): Number format error!";
+								}
+								
+								token = labelAnalyzer.nextToken ();
+							}
+							
+							else {
+								
+								errorFlag = true;
+								errorList += "Error (Line " + currentLine + "): Bad space declaration!\n";
+								token = labelAnalyzer.skipToEOL();
+							}
+						}
+						
+						codeTable.addCodeEntry (codeEntry);
+					}
+					
+					// do we have a db directive?
+					else if (directive.equals ("dw")) {
+						
+						// enter a loop, read tokens until the token equals end of line
+						// or an error occurs
+						token = labelAnalyzer.nextToken();
+						
+						while (!token.equals("EndOfLine") && !token.equals("EndOfFile")) {
+							
+							if (token.startsWith ("StringLiteral=")) {
+								
+								String strLiteral = token.substring (token.indexOf('=')+1);
+								codeEntry.directiveArguments.add (token);
+
+								currentLocation += (strLiteral.length()*2);
+								
+								token = labelAnalyzer.nextToken();
+								currentLineContents += "\t\"" + strLiteral + "\"\t# string literal\n";
+							}
+							
+							else if (token.startsWith ("DecNumber=") || token.startsWith("HexNumber=") || token.startsWith ("BinNumber=")) {
+								
+								try {
+									
+									int number = 0;
+									
+									if (token.startsWith ("DecNumber="))
+										number = Integer.parseInt (token.substring(token.indexOf('=')+1), 10);
+									else if (token.startsWith ("HexNumber="))
+										number = Integer.parseInt (token.substring(token.indexOf('=')+1), 16);
+									else if (token.startsWith ("HexNumber="))
+										number = Integer.parseInt (token.substring(token.indexOf('=')+1), 2);
+									
+									codeEntry.directiveArguments.add(token);
+									
+									currentLocation+=2;
+									currentLineContents += "\t" + number + "\t# number declarator\n";
+									
+								} catch (NumberFormatException e) {
+									
+									errorFlag = true;
+									errorList += "Error (Line " + currentLine + "): Number format error!";
+								}
+								
+								token = labelAnalyzer.nextToken ();
+							}
+							
+							else {
+								
+								errorFlag = true;
+								errorList += "Error (Line " + currentLine + "): Bad space declaration!\n";
+								token = labelAnalyzer.skipToEOL();
+							}
+						}
+						
+						codeTable.addCodeEntry (codeEntry);
+					}
+					
+					// if directive is resb or resw we reserve space
+					else if (directive.equals ("resb") || directive.equals ("resw")) {
+						
+						// the next entry must be a number
+						token = labelAnalyzer.nextToken ();
+						
+						if (!token.startsWith ("DecNumber=") && !token.startsWith("HexNumber=") && !token.startsWith ("BinNumber=")) {
+							
+							errorFlag = true;
+							errorList += "Error (Line " + currentLine + "): Space reservation must use a number!\n";
+							token = labelAnalyzer.skipToEOL();
+						}
+						
+						else {
+							
+							// check to make sure this ends the line
+							String number = token;
+							token = labelAnalyzer.nextToken();
+							
+							if (!token.equals ("EndOfLine") && !token.equals ("EndOfFile")) {
+								
+								errorFlag = true;
+								errorList += "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+								token = labelAnalyzer.skipToEOL();
+							}
+							
+							else {
+								
+								try {
+								
+									int resDec = 0;
+								
+									if (number.startsWith("DecNumber="))
+										resDec = Integer.parseInt(number.substring (number.indexOf ('=')+1), 10);
+									else if (number.startsWith ("HexNumber="))
+										resDec = Integer.parseInt(number.substring (number.indexOf ('=')+1), 16);
+									else if (number.startsWith ("BinNumber="))
+										resDec = Integer.parseInt(number.substring (number.indexOf ('=')+1), 2);
+								
+									codeEntry.directiveArguments.add (number);
+									
+									if (directive.equals ("resb"))
+										currentLocation += resDec;
+									else
+										currentLocation += resDec*2;
+									
+									currentLineContents += "\t" + directive + " " + resDec + "\t# blank space reservation\n";
+									
+								} catch (NumberFormatException e) {
+								
+									errorFlag = true;
+									errorList += "Error (Line " + currentLine + "): Number error at resb/resw!\n";
+									token = labelAnalyzer.skipToEOL();
+								}
+							}
+						}
+						
+						codeTable.addCodeEntry (codeEntry);
+					}
+				}
+				
+				// if it is anything but end of line or end of file print error content
+				// if it wasn't an opcode or a directive, add a tab and a #
+				else if (token.equals ("EndOfLine") || token.equals("EndOfFile"))
+					currentLineContents += "\t\t\t\t# no operation";
+				
+				else {
+					
+					errorFlag = true;
+					errorList += "Error (Line " + currentLine + "): Invalid combination of opcode and operands!\n";
+					token = labelAnalyzer.skipToEOL();
+				}
+				
+				// do we have a blank line? If so just dump a newline to the list file
+				if (token.equals ("EndOfLine")) {
+					
+					++currentLine;
+					listWriter.println (currentLineContents);
+					currentLineContents = "";
+				}
+				
+				// if the given line ends with end of file we need to stop here too, just in
+				// case the file does not have a blank final line!
+				else if (token.equals ("EndOfFile")) {
+					
+					listWriter.println ();
+					listWriter.println ("# Program End");
+					break;
+				}
+			}
+			
+			listWriter.flush();
+			listWriter.close();
+		}
+		
+		catch (IOException e) {
+			
+			System.out.println ("I/O Error - Could not open listing file: " + e.toString());
+			System.exit (-1);
+		}
+		
+		return errorFlag;
+	}
+	
+	// public short lookupOpcode (String mnemonic): Find the correct opcode
+	public short lookupOpcode (String mnemonic) {
+		
+		// first search the oneByteOpcodes list
+		for (int i = 0; i < Assembler.oneByteOps.length; i++) {
+			
+			if (mnemonic.equals (Assembler.oneByteOps[i]))
+				return Assembler.oneByteOpNums[i];
+		}
+		
+		// now search the twoByteOpcodes list
+		for (int i = 0; i < Assembler.twoByteOps.length; i++) {
+			
+			if (mnemonic.equals (Assembler.twoByteOps[i]))
+				return Assembler.twoByteOpNums[i];
+		}
+		
+		return -1;
+	}
+	
+	// public short lookupRegisterOneValue (String mnemonic): Look up the opcode and it's corresponding default mod value
+	public short lookupRegisterOneValue (String mnemonic) {
+		
+		// search the two-byte opcode list
+		for (int i = 0; i < Assembler.twoByteOpNums.length; i++) {
+			
+			if (mnemonic.equals (Assembler.twoByteOps[i]))
+				return Assembler.twoByteDefRM[i];
+		}
+		
+		return -1;
+	}
+	
+	// public short lookupRegisterTwoValue (String register): Find the register value for the given register
+	public short lookupRegisterTwoValue (String register) {
+		
+		for (int i = 0; i < Assembler.registers.length; i++) {
+			
+			if (register.equals (Assembler.registers[i]))
+				return Assembler.regDefines[i];
+		}
+		
+		return -1;
+	}
+}
+
+// class CodeGenerator: Generate machine code from an IntermediateCodeList
+class CodeGenerator {
+	
+	IntermediateCodeList toGenerate;
+	SymbolTable codeSymbols;
+	File outputFile;
+	short [] generatedCode;
+	String errorList;
+	boolean errorFlag;
+	short codeOrigin;
+	
+	// construct this object
+	public CodeGenerator (IntermediateCodeList inputList, SymbolTable codeLabels, String outfile, int codeSize, short origin) {
+		
+		toGenerate = inputList;
+		codeSymbols = codeLabels;
+		outputFile = new File (outfile);
+		errorList = "";
+		errorFlag = false;
+		generatedCode = new short [codeSize];
+		codeOrigin = origin;
+	}
+	
+	public String getErrorList () { return errorList; }
+	
+	// public boolean generateCode (): Generate the code from the Intermediate code and output it
+	public boolean generateCode () {
+		
+		// enter a loop to begin building the intermediate code
+		for (int i = 0; i < toGenerate.size(); i++) {
+			
+			// read the entry, see what type it is
+			IntermediateCodeEntry toBuild = toGenerate.getCodeEntry(i);
+			
+			// is this an opcode entry?
+			if (toBuild.directiveEntry == false) {
+				
+				// build this as an opcode entry
+				generatedCode[toBuild.entryAddr] = toBuild.opcode;
+				
+				// if there is a modrm this is two bytes!
+				if (toBuild.modrm != -1) {
+					
+					short tstJmp = (short) (toBuild.opcode &~ 0xf0);
+					
+					if ((tstJmp == 0x0F || toBuild.opcode == 0x0E) && toBuild.modrm != 0x0A) {
+						
+						errorFlag = true;
+						errorList += "Error (Line " + toBuild.instructionLine + "): Invalid combination of opcode and operands!\n";
+						continue;
+					}
+					
+					else if (toBuild.opcode == 0x16 && toBuild.modrm != 0x08) {
+						
+						errorFlag = true;
+						errorList += "Error (Line " + toBuild.instructionLine + "): Invalid combination of opcode and operands!\n";
+						continue;
+					}
+					
+					else if (tstJmp != 0x0F && toBuild.opcode != 0x0E)
+						generatedCode[toBuild.entryAddr+1] = toBuild.modrm;
+					
+					// if there is a memory or immediate argument add it
+					if (toBuild.memoryImmediate != -1) {
+						
+						if (toBuild.memoryImmediate <= 0xff && tstJmp != 0x0f && toBuild.opcode != 0x0e)
+							generatedCode[toBuild.entryAddr+2] = (short) toBuild.memoryImmediate;
+						
+						else if (toBuild.memoryImmediate <= 0xffff) {
+							
+							// here we have to check for legal arguments!
+							short registerOne = (short) (toBuild.modrm >> 4);
+							short registerTwo = (short) (toBuild.modrm & ~0xf0);
+							
+							if ((registerOne == 0x01 || registerOne == 0x02) && registerTwo == 0x09) {
+								
+								errorFlag = true;
+								errorList += "Error (Line " + toBuild.instructionLine + "): Operand size mismatch!\n";
+								continue;
+							}
+							
+							if (tstJmp == 0x0f || toBuild.opcode == 0x0e) {
+								
+								generatedCode[toBuild.entryAddr+1] = (short) (toBuild.memoryImmediate & ~0xff00);
+								generatedCode[toBuild.entryAddr+2] = (short) (toBuild.memoryImmediate >> 8);
+							}
+							
+							else if (toBuild.opcode == 0x16)
+								generatedCode[toBuild.entryAddr+1] = (short) (toBuild.memoryImmediate & ~0xff00);
+							
+							else {
+								
+								generatedCode[toBuild.entryAddr+2] = (short) (toBuild.memoryImmediate & ~0xff00);
+								generatedCode[toBuild.entryAddr+3] = (short) (toBuild.memoryImmediate >> 8);
+							}
+						}
+					}
+				
+					// if there is a label argument, look it up
+					else if (toBuild.label.equals ("") == false) {
+					
+						// find the label. If it can't be found, flag an error
+						int address = codeSymbols.getSymbolAddress(toBuild.label);
+						int tempAddr = address;
+						address += codeOrigin;
+						
+						if (tempAddr == -1) {
+							
+							errorFlag = true;
+							errorList += "Error (Line " + toBuild.instructionLine + "): Unknown label or mnemonic!"; 
+							continue;
+						}
+	
+						// we have to adjust the modrm to point to immediate16 if we are loading
+						// a label into s or d. For normal registers we load the value at the memory loc.
+						// for s and d we load pointers
+						short registerOne = (short) (toBuild.modrm & ~0x0f);
+						
+						if ((registerOne == 0x60 || registerOne == 0x70) && toBuild.opcode == 0x02) {
+							
+							toBuild.modrm = (short) (registerOne | 0x09);
+							generatedCode[toBuild.entryAddr+1] = toBuild.modrm;
+						}
+						
+						if (tstJmp == 0x0f || toBuild.opcode == 0x0e) {
+							
+							generatedCode[toBuild.entryAddr+1] = (short) (address & ~0xff00);
+							generatedCode[toBuild.entryAddr+2] = (short) (address >> 8);
+						}
+						
+						else {
+							
+							generatedCode[toBuild.entryAddr+2] = (short) (address & ~0xff00);
+							generatedCode[toBuild.entryAddr+3] = (short) (address >> 8);
+						}
+					}
+				}
+			}
+			
+			// build directive space
+			else if (toBuild.directiveEntry == true) {
+				
+				if (toBuild.directive.equals ("db")) {
+					
+					// enter a loop, read directive arguments until we run out
+					short currentStore = toBuild.entryAddr;
+					
+					for (int j = 0; j < toBuild.directiveArguments.size(); j++) {
+						
+						String currentArg = toBuild.directiveArguments.get(j);
+						
+						if (currentArg.startsWith("StringLiteral=")) {
+							
+							String strLit = currentArg.substring(currentArg.indexOf ('=')+1);
+							
+							for (int k = 0; k < strLit.length(); k++)
+								generatedCode[currentStore++] = (short) strLit.charAt(k);
+						}
+						
+						else if (currentArg.startsWith("DecNumber=") || currentArg.startsWith ("HexNumber=") || currentArg.startsWith("BinNumber=")) {
+
+							int toStore = 0;
+							
+							if (currentArg.startsWith ("DecNumber="))
+								toStore = Integer.parseInt (currentArg.substring (currentArg.indexOf('=')+1), 10);
+							else if (currentArg.startsWith ("HexNumber="))
+								toStore = Integer.parseInt (currentArg.substring (currentArg.indexOf('=')+1), 16);
+							if (currentArg.startsWith ("BinNumber="))
+								toStore = Integer.parseInt (currentArg.substring (currentArg.indexOf('=')+1), 2);
+							
+							if (toStore > 0xff) {
+								
+								errorFlag = true;
+								errorList += "Error (Line " + toBuild.instructionLine + "): Operand size mismatch!\n";
+								continue;
+							}
+							
+							else
+								generatedCode[currentStore++] = (short) toStore;
+						}
+					}
+				}
+				
+				else if (toBuild.directive.equals ("dw")) {
+					
+					// enter a loop, read directive arguments until we run out
+					short currentStore = toBuild.entryAddr;
+					
+					for (int j = 0; j < toBuild.directiveArguments.size(); j++) {
+						
+						String currentArg = toBuild.directiveArguments.get(j);
+						
+						if (currentArg.startsWith("StringLiteral=")) {
+							
+							String strLit = currentArg.substring(currentArg.indexOf ('=')+1);
+							
+							for (int k = 0; k < strLit.length(); k++)
+								generatedCode[currentStore] = (short) strLit.charAt(k);
+						}
+						
+						else if (currentArg.startsWith("DecNumber=") || currentArg.startsWith ("HexNumber=") || currentArg.startsWith("BinNumber=")) {
+
+							int toStore = 0;
+							
+							if (currentArg.startsWith ("DecNumber="))
+								toStore = Integer.parseInt (currentArg.substring (currentArg.indexOf('=')+1), 10);
+							else if (currentArg.startsWith ("HexNumber="))
+								toStore = Integer.parseInt (currentArg.substring (currentArg.indexOf('=')+1), 16);
+							if (currentArg.startsWith ("BinNumber="))
+								toStore = Integer.parseInt (currentArg.substring (currentArg.indexOf('=')+1), 2);
+							
+							if (toStore > 0x7fff) {
+								
+								errorFlag = true;
+								errorList += "Error (Line " + toBuild.instructionLine + "): Operand size mismatch!\n";
+								continue;
+							}
+							
+							else {
+								
+								generatedCode[currentStore++] = (short) (toStore & ~0xff00);
+								generatedCode[currentStore++] = (short) (toStore >> 8);
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		try {
+			
+			outputFile.createNewFile ();
+			DataOutputStream exeWriter = new DataOutputStream (new FileOutputStream (outputFile));
+			
+			for (int i = 0; i < generatedCode.length; i++)
+				exeWriter.writeShort(generatedCode[i]);
+			
+			exeWriter.flush ();
+			exeWriter.close ();
+			
+		} catch (IOException e) {
+			
+			errorFlag = true;
+			errorList += "I/O Error: Could not open destination executable!\n";
+		}
+		
+		// return error code
+		return errorFlag;
+	}
+}
+
+// class LexicalAnalyzer: define a lexical analyzer for the Toy Virtual Machine
+class LexicalAnalyzer {
+	
+	// input file and analyzer
+	File inputFile;
+	String fileData;
+	StreamTokenizer analyzer;
+	String currentLineContents;
+	ArrayList<String> analysisLines;
+	int currentLine;
+	
+	public LexicalAnalyzer (File toTokenize) {
+		
+		// set up this analyzer
+		try {
+			
+			inputFile = toTokenize;
+			BufferedReader fileReader = new BufferedReader (new InputStreamReader (new FileInputStream (inputFile)));
+			String inputLine = "";
+			fileData = "";
+			
+			while ((inputLine = fileReader.readLine()) != null)
+				fileData += inputLine + "\n";
+			
+			resetAnalzyer (fileData);
+			fileReader.close ();
+			currentLine = 0;
+			analysisLines = new ArrayList<String>();
+			
+		} catch (IOException e) {
+			
+			System.out.println ("Error opening file: " + e.toString ());
+			System.exit (-1);
+		}
+	}
+	
+	// public void resetAnalyzer (): Setup this analzyer for use. Called first time from constructor
+	public void resetAnalzyer (String input) {
+		
+		// try to initialize the analyzer
+		analyzer = new StreamTokenizer (new BufferedReader (new InputStreamReader (new ByteArrayInputStream (input.getBytes()))));
+			
+		// now set up the tokens to parse
+		// commas delimit separators outside of strings
+		analyzer.whitespaceChars (',', ',');
+		analyzer.ordinaryChars ('0', '9');
+			
+		analyzer.wordChars('0', ':');
+		analyzer.wordChars('#', '$');
+		analyzer.wordChars('_', '_');
+		
+		// set up string delimiters
+		analyzer.quoteChar ('"');
+		analyzer.quoteChar ('\'');
+			
+		// set up comment character
+		analyzer.commentChar(';');
+			
+		// make sure end of line is significant here!
+		analyzer.eolIsSignificant (true);
+	}
+	
+	// public void runLexicalAnalysis (): Run an analysis of this code
+	public void runLexicalAnalysis () {
+		
+		// read tokens into the ArrayList while we don't have an end of file condition
+		try {
+			
+			int tokenType = analyzer.nextToken ();
+
+			// loop until we encounter end of file
+			while (tokenType != StreamTokenizer.TT_EOF) {
+				
+				// do we have to handle a new line?
+				if (tokenType == StreamTokenizer.TT_EOL)
+					// add tempToken to the list and then blank it out
+					analysisLines.add ("EndOfLine");
+				
+				// do we have a String literal?
+				else if (tokenType == '"' || tokenType == '\'')
+					analysisLines.add("StringLiteral=" + analyzer.sval);
+				
+				// do we have a word?
+				else if (tokenType == StreamTokenizer.TT_WORD) {
+					
+					String currentToken = analyzer.sval;
+					
+					// is this a number?
+					if (currentToken.startsWith("#")) {
+						
+						currentToken = currentToken.replace('#', ' ');
+						currentToken = currentToken.trim ();
+						
+						if (currentToken.endsWith("h")) {
+							
+							currentToken = currentToken.replace('h', ' ');
+							currentToken = currentToken.trim ();
+							
+							analysisLines.add ("HexNumber=" + currentToken);
+						}
+						
+						else if (currentToken.endsWith("b")) {
+							
+							currentToken = currentToken.replace ('b', ' ');
+							currentToken = currentToken.trim ();
+							
+							analysisLines.add ("BinaryNumber=" + currentToken);
+						}
+						
+						else
+							analysisLines.add("DecNumber=" + currentToken);
+					}
+					
+					// is this a memory reference?
+					else if (currentToken.startsWith("$")) {
+						
+						currentToken = currentToken.replace('$', ' ');
+						currentToken = currentToken.trim ();
+						
+						analysisLines.add ("MemoryRef=" + currentToken);
+					}
+					
+					// is this a register?
+					else if (isRegister (currentToken))
+						analysisLines.add ("Register=" + currentToken);
+					
+					// is this a one-byte opcode?
+					else if (isOneByteOpcode (currentToken))
+						analysisLines.add ("OneByteOpcode=" + currentToken);
+					
+					// is this a two-byte opcode?
+					else if (isTwoByteOpcode (currentToken))
+						analysisLines.add ("TwoByteOpcode=" + currentToken);
+					
+					// is this a directive?
+					else if (isDirective (currentToken))
+						analysisLines.add ("Directive=" + currentToken);
+					
+					// no, it's a label!!!
+					else
+						analysisLines.add ("Label=" + currentToken);
+				}
+				
+				tokenType = analyzer.nextToken();
+			}
+			
+			analysisLines.add("EndOfFile");
+			
+		} catch (IOException e) {
+			
+			System.out.println ("I/O Error during analysis!");
+			System.exit (-1);
+		}
+	}
+	
+	// public String nextLine (): Get the next line from the analyzer
+	public String nextToken () {
+		
+		if (currentLine < analysisLines.size ())
+			return analysisLines.get(currentLine++);
+		
+		return "NoMoreTokens";
+	}
+	
+	// public String skipToEOL (): skip to the next end of line token. the next call
+	// to nextToken () will return the beginning of the next line
+	public String skipToEOL () {
+		
+		// start by checking for current token = end of line
+		if (analysisLines.get(currentLine).equals("EndOfLine") || analysisLines.get(currentLine).equals("EndOfFile"))
+			return analysisLines.get(currentLine);
+		
+		String next = nextToken ();
+		
+		while (!next.equals("EndOfLine") && !next.equals("EndOfFile"))
+			next = nextToken ();
+		
+		return next;
+	}
+	
+	// public void dumpAnalysisList (): Dump the lexical analysis to the screen
+	public void dumpAnalysisList () {
+		
+		for (int i = 0, j = 0; i < analysisLines.size(); i++) {
+			
+			// read the next line from the analyzer
+			String nextToken = "";
+			String lineAnalysis = "";
+			
+			while (i < analysisLines.size () && !(nextToken = analysisLines.get(i)).equals("NoMoreTokens")) {
+				
+				lineAnalysis += nextToken + " ";
+				
+				// if we have encountered the end of the line, increment j to next line
+				// and display the current line
+				if (nextToken.equals("EndOfLine") || nextToken.equals("EndOfFile")) {
+					
+					j++;
+					break;
+				}
+				
+				i++;
+			}
+				
+			System.out.println ("Analysis of line " + j + ": " + lineAnalysis);
+		}
+	}
+	
+	// public int getCurrentLine (): return current line
+	public int getCurrentLine () { return currentLine; }
+	public String getCurrentLineContents () { return currentLineContents; }
+	
+	// public boolean isRegister (String argument): See if this argument matches a register
+	public boolean isRegister (String argument) {
+		
+		for (int i = 0; i < Assembler.registers.length; i++) {
+			
+			if (argument.equals (Assembler.registers[i]))
+				return true;
+		}
+		
+		return false;
+	}
+	
+	// public boolean isOneByteOpcode (String argument): See if this argument matches a one byte opcode
+	public boolean isOneByteOpcode (String argument) {
+		
+		for (int i = 0; i < Assembler.oneByteOps.length; i++) {
+			
+			if (argument.equals (Assembler.oneByteOps[i]))
+				return true;
+		}
+		
+		return false;
+	}
+	
+	// public boolean isTwoByteOpcode (String argument): See if this argument matches a two byte opcode
+	public boolean isTwoByteOpcode (String argument) {
+		
+		for (int i = 0; i < Assembler.twoByteOps.length; i++) {
+			
+			if (argument.equals (Assembler.twoByteOps[i]))
+				return true;
+		}
+		
+		return false;
+	}
+	
+	// public boolean isDirective (String argument): See if this argument matches a directive
+	public boolean isDirective (String argument) {
+		
+		for (int i = 0; i < Assembler.directives.length; i++) {
+			
+			if (argument.equals (Assembler.directives[i]))
+				return true;
+		}
+		
+		return false;
+	}
+}
+
+// class SymbolTable: Define a symbol table
+class SymbolTable {
+
+	// member variables
+	private ArrayList<SymbolTableEntry> symTable;
+	
+	// constructor method
+	public SymbolTable () {
+		
+		// create the symbol table
+		symTable = new ArrayList<SymbolTableEntry>();
+	}
+	
+	// public boolean addSymbol (): Add a symbol to the table
+	public boolean addSymbol (String symbol, int addr) {
+		
+		for (int i = 0; i < symTable.size(); i++) {
+			
+			if (symTable.get(i).entryName.equals(symbol))
+				return true;
+		}
+		
+		symTable.add (new SymbolTableEntry (symbol, addr, true));
+		return false;
+	}
+	
+	// public short getSymbolAddress (String symbol): Get an address from the table
+	public int getSymbolAddress (String symbol) {
+		
+		for (int i = 0; i < symTable.size(); i++) {
+			
+			if (symbol.equals (symTable.get(i).entryName))
+				return symTable.get(i).addr;
+		}
+		
+		return -1;
+	}
+}
+
+// class SymbolTableEntry: define a symbol table entry
+class SymbolTableEntry {
+	
+	public SymbolTableEntry (String name, int address, boolean found) {
+		
+		entryName = name;
+		addr = address;
+		refFound = found;
+	}
+	
+	// all members are public
+	public String  entryName;
+	public int     addr;
+	public boolean refFound;
+}
+
+class IntermediateCodeList {
+	
+	private ArrayList<IntermediateCodeEntry> codeList = new ArrayList<IntermediateCodeEntry>();
+	
+	// addCodeEntry (): add an entry to the list
+	public void addCodeEntry (IntermediateCodeEntry entry) {
+		
+		codeList.add (entry);
+	}
+	
+	// getCodeEntry (int idx): get the entry at the specified index
+	public IntermediateCodeEntry getCodeEntry (int idx) { return codeList.get(idx); }
+	public int size () { return codeList.size (); }
+}
+
+// class IntermediateCodeEntry: define an entry for intermediate code
+class IntermediateCodeEntry {
+	
+	public boolean directiveEntry;
+	public short entryAddr;
+	public int instructionLine;
+	
+	public short opcode;
+	public short modrm;
+	public int memoryImmediate;
+	public String label;
+
+	public String directive;
+	public ArrayList<String> directiveArguments;
+	
+	public IntermediateCodeEntry () {
+		
+		entryAddr = 0;
+		opcode = -1;
+		modrm = -1;
+		memoryImmediate = -1;
+		label = "";
+		
+		directive = "";
+		directiveEntry = false;
+		directiveArguments = new ArrayList<String>();
+	}
+}

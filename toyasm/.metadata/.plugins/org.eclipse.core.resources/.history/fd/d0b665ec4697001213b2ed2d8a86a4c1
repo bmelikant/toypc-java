@@ -1,0 +1,50 @@
+package vm;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
+
+// class SystemClock: Define a system clock for this machine
+public class SystemClock {
+	
+	// system timer interrupt
+	private static final short TIMER_INTERRUPT = 0x05;
+	
+	// member variables
+	ToyProcessor refMachine;
+	private int hourRegister, minuteRegister, secondRegister;
+	private int tscRegister;
+	
+	// constructor
+	public SystemClock (ToyProcessor ref, int hrReg, int minReg, int secReg, int tscReg) {
+		
+		refMachine = ref;
+		hourRegister   = hrReg;
+		minuteRegister = minReg;
+		secondRegister = secReg;
+		tscRegister    = tscReg;
+		
+		// get the current time into the registers
+		Calendar currentTime = new GregorianCalendar ();
+		
+		refMachine.storeMemory((short) currentTime.get(Calendar.HOUR), hourRegister);
+		refMachine.storeMemory((short) currentTime.get(Calendar.MINUTE), minuteRegister); 
+		refMachine.storeMemory((short) currentTime.get(Calendar.SECOND), secondRegister);
+		refMachine.storeMemory((short) 0x0, tscRegister);
+	}
+	
+	// public void updateTsc (): Increment the time stamp counter
+	public void updateTsc () {
+		
+		refMachine.storeMemory((short) (refMachine.getMemory(tscRegister)+1), tscRegister);
+		refMachine.interrupt (TIMER_INTERRUPT);
+	}
+	
+	// public void updateSystemClock (): Update the time in the clock
+	public void updateSystemClock () {
+		
+		Calendar currentTime = new GregorianCalendar ();
+		
+		refMachine.storeMemory((short) currentTime.get(Calendar.HOUR), hourRegister);
+		refMachine.storeMemory((short) currentTime.get(Calendar.MINUTE), minuteRegister);
+		refMachine.storeMemory((short) currentTime.get(Calendar.SECOND), secondRegister);
+	}
+}

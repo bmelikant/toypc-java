@@ -1,0 +1,67 @@
+import java.io.File;
+
+// class ToyAssembler: Define an assembler for the Toy Virtual Machine
+public class ToyAssembler {
+	
+	// member variables
+	private File infile, outfile;		// the input and output files
+	
+	// public static void dumpUsageInfo (): Print out the proper command syntax for the assembler
+	public static void dumpUsageInfo () {
+		
+		// print out the information needed
+		System.out.println ("Toy Assembler v1.0. Command Syntax: ");
+		System.out.println ("toyasm -i <infile> -o <outfile opt>\n");
+		System.out.println ("*Parameters marked opt are optional on the command line.");
+	}
+	
+	// public static void main (String [] args): main method that runs the assembler
+	public static void main (String [] args) {
+		
+		// check for arguments. There must be at least one argument. ONLY two are supported at the moment,
+		// output file name and input file name
+		if (args.length < 2) {
+			
+			dumpUsageInfo ();
+			System.exit (-1);
+		}
+		
+		// there are enough arguments. Now we set up a ToyAssembler instance and fill it with the argument info
+		ToyAssembler myToyAsm = new ToyAssembler ();
+		
+		for (int i = 0; i < args.length; i++) {
+			
+			// if the argument is -i the next argument should be the input filename
+			if (args[i].equals ("-i")) {
+				
+				i++;
+				
+				// if the file was not found, set it up
+				if (myToyAsm.infile == null)
+					myToyAsm.infile = new File (args[i]);
+				
+				// if the file WAS found, flag an error
+				else
+					System.out.println ("Warning: more than one input file. File " + args[i] + " was ignored!");
+			}
+			
+			// if the argument is -o the next argument should be the output filename
+			else if (args[i].equals ("-o")) {
+				
+				i++;
+				
+				// if the file was not found, set it up
+				if (myToyAsm.outfile == null) 
+					myToyAsm.outfile = new File (args[i]);
+				
+				// if the file WAS found, flag an error
+				else
+					System.out.println ("Warning: more than one output file. File " + args[i] + " was ignored!");
+			}
+			
+			// otherwise we have an illegal argument; print a message stating that fact
+			else
+				System.out.println ("Warning: command line option " + args[i] + " was not found; ignored.");
+		}
+	}
+}
