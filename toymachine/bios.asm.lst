@@ -1,0 +1,198 @@
+# Assembly Listing File 
+# TASM 1.0
+# Program Start
+
+0:0000	org 28672			# program origin: 28672
+
+1:7000					# no operation
+2:7000		0F bios_entry		# jmp bios_entry (three byte opcode)
+3:7003					# no operation
+4:7003					# no operation
+5:7003	curX	0	# number declarator
+
+6:7004	curY	0	# number declarator
+
+7:7005					# no operation
+8:7005	vidCols	80	# number declarator
+
+9:7006	vidRows	25	# number declarator
+
+10:7007					# no operation
+11:7007	biosRevision	"Revision 1.0"	# string literal
+	10	# number declarator
+	0	# number declarator
+
+12:7015					# no operation
+13:7015	waitKey:				# no operation
+14:7015					# no operation
+15:7015		08 06			# psh s (two byte opcode)
+16:7017		08 01			# psh a (two byte opcode)
+17:7019		02 69 continueString		# lds continueString (four byte opcode)
+18:701d		0E PrintString		# call PrintString (three byte opcode)
+19:7020					# no operation
+20:7020	waitLoop:				# no operation
+21:7020					# no operation
+22:7020		02 18  5		# lda 5 (three byte opcode)
+23:7023		01 1A F0 20		# sta 20F0 (four byte opcode)
+24:7027					# no operation
+25:7027		02 1A F1 20		# lda 20F1 (four byte opcode)
+26:702b		14 18  0		# cmpa 0 (three byte opcode)
+27:702e		1F waitLoop		# je waitLoop (three byte opcode)
+28:7031					# no operation
+29:7031		14 18 FF		# cmpa FF (three byte opcode)
+30:7034		1F waitLoop		# je waitLoop (three byte opcode)
+31:7037					# no operation
+32:7037		09 01			# pop a (two byte opcode)
+33:7039		09 06			# pop s (two byte opcode)
+34:703b		45			# ret (one byte opcode)
+35:703c					# no operation
+36:703c	continueString	"Press any key to continue..."	# string literal
+	0	# number declarator
+
+37:7059					# no operation
+38:7059	PrintString:				# no operation
+39:7059					# no operation
+40:7059		40			# ldstr (one byte opcode)
+41:705a		14 18  0		# cmpa 0 (three byte opcode)
+42:705d		1F PrintStringDone		# je PrintStringDone (three byte opcode)
+43:7060					# no operation
+44:7060		14 18  A		# cmpa 10 (three byte opcode)
+45:7063		1F PrintStringCR		# je PrintStringCR (three byte opcode)
+46:7066					# no operation
+47:7066		02 2A curY		# ldb curY (four byte opcode)
+48:706a		05 2A vidCols		# mlb vidCols (four byte opcode)
+49:706e		03 2A curX		# adb curX (four byte opcode)
+50:7072					# no operation
+51:7072					# no operation
+52:7072		02 79 00 10		# ldd 1000 (four byte opcode)
+53:7076		03 72			# add b (two byte opcode)
+54:7078					# no operation
+55:7078		02 2A curX		# ldb curX (four byte opcode)
+56:707c		03 28  1		# adb 1 (three byte opcode)
+57:707f					# no operation
+58:707f		01 2A curX		# stb curX (four byte opcode)
+59:7083					# no operation
+60:7083		41			# ststr (one byte opcode)
+61:7084		0F PrintString		# jmp PrintString (three byte opcode)
+62:7087					# no operation
+63:7087	PrintStringCR:				# no operation
+64:7087					# no operation
+65:7087		02 1A curY		# lda curY (four byte opcode)
+66:708b		03 18  1		# ada 1 (three byte opcode)
+67:708e		01 1A curY		# sta curY (four byte opcode)
+68:7092					# no operation
+69:7092		02 28  0		# ldb 0 (three byte opcode)
+70:7095		01 2A curX		# stb curX (four byte opcode)
+71:7099					# no operation
+72:7099		0F PrintString		# jmp PrintString (three byte opcode)
+73:709c					# no operation
+74:709c	PrintStringDone:				# no operation
+75:709c					# no operation
+76:709c		45			# ret (one byte opcode)
+77:709d					# no operation
+78:709d	PrintInteger:				# no operation
+79:709d					# no operation
+80:709d		14 28  0		# cmpb 0 (three byte opcode)
+81:70a0		1F AlreadyZero		# je AlreadyZero (three byte opcode)
+82:70a3					# no operation
+83:70a3		02 79 intStr		# ldd intStr (four byte opcode)
+84:70a7		02 48  4		# ldx 4 (three byte opcode)
+85:70aa					# no operation
+86:70aa	ClearStringLoop:				# no operation
+87:70aa					# no operation
+88:70aa		02 18  0		# lda 0 (three byte opcode)
+89:70ad		41			# ststr (one byte opcode)
+90:70ae					# no operation
+91:70ae		04 48  1		# sbx 1 (three byte opcode)
+92:70b1		14 48  0		# cmpx 0 (three byte opcode)
+93:70b4					# no operation
+94:70b4		2F ClearStringLoop		# jne ClearStringLoop (three byte opcode)
+95:70b7					# no operation
+96:70b7		02 79 intStr		# ldd intStr (four byte opcode)
+97:70bb					# no operation
+98:70bb	ConvertLoop:				# no operation
+99:70bb					# no operation
+100:70bb		02 69 convertString		# lds convertString (four byte opcode)
+101:70bf					# no operation
+102:70bf		02 42			# ldx b (two byte opcode)
+103:70c1		07 48  A		# mdx 10 (three byte opcode)
+104:70c4		03 64			# ads x (two byte opcode)
+105:70c6					# no operation
+106:70c6		40			# ldstr (one byte opcode)
+107:70c7		41			# ststr (one byte opcode)
+108:70c8		0E waitKey		# call waitKey (three byte opcode)
+109:70cb					# no operation
+110:70cb		06 28  A		# dvb 10 (three byte opcode)
+111:70ce					# no operation
+112:70ce		14 28  0		# cmpb 0 (three byte opcode)
+113:70d1		1F EndPrintInteger		# je EndPrintInteger (three byte opcode)
+114:70d4					# no operation
+115:70d4		0F ConvertLoop		# jmp ConvertLoop (three byte opcode)
+116:70d7					# no operation
+117:70d7	EndPrintInteger:				# no operation
+118:70d7					# no operation
+119:70d7		45			# ret (one byte opcode)
+120:70d8					# no operation
+121:70d8	AlreadyZero:				# no operation
+122:70d8					# no operation
+123:70d8		02 79 intStr		# ldd intStr (four byte opcode)
+124:70dc		02 18 30		# lda 30 (three byte opcode)
+125:70df		41			# ststr (one byte opcode)
+126:70e0					# no operation
+127:70e0		45			# ret (one byte opcode)
+128:70e1					# no operation
+129:70e1	LoadTime:				# no operation
+130:70e1					# no operation
+131:70e1		02 1A FA 20		# lda 20FA (four byte opcode)
+132:70e5		03 18 30		# ada 30 (three byte opcode)
+133:70e8		01 1A A0 10		# sta 10A0 (four byte opcode)
+134:70ec					# no operation
+135:70ec		45			# ret (one byte opcode)
+136:70ed					# no operation
+137:70ed	bios_entry:				# no operation
+138:70ed					# no operation
+139:70ed		02 69 biosLoadMsg		# lds biosLoadMsg (four byte opcode)
+140:70f1		0E PrintString		# call PrintString (three byte opcode)
+141:70f4					# no operation
+142:70f4		02 69 biosRevision		# lds biosRevision (four byte opcode)
+143:70f8		0E PrintString		# call PrintString (three byte opcode)
+144:70fb					# no operation
+145:70fb		02 18 1F		# lda 31 (three byte opcode)
+146:70fe		01 1A F2 21		# sta 21F2 (four byte opcode)
+147:7102					# no operation
+148:7102		02 18  2		# lda 02 (three byte opcode)
+149:7105		01 1A F1 21		# sta 21F1 (four byte opcode)
+150:7109					# no operation
+151:7109	waitForStore:				# no operation
+152:7109					# no operation
+153:7109		02 1A F2 21		# lda 21F2 (four byte opcode)
+154:710d		14 18  0		# cmpa 0 (three byte opcode)
+155:7110					# no operation
+156:7110		1F done		# je done (three byte opcode)
+157:7113		0F waitForStore		# jmp waitForStore (three byte opcode)
+158:7116					# no operation
+159:7116	done:				# no operation
+160:7116					# no operation
+161:7116		10			# hlt (one byte opcode)
+162:7117					# no operation
+163:7117					# no operation
+164:7117	biosLoadMsg	"Running BIOS Boot Sequence..."	# string literal
+	10	# number declarator
+	0	# number declarator
+
+165:7136	testString	"This is a test"	# string literal
+	0	# number declarator
+
+166:7145	intStr	0	# number declarator
+	0	# number declarator
+	0	# number declarator
+	0	# number declarator
+	0	# number declarator
+
+167:714a	convertString	"0123456789"	# string literal
+
+168:7154	testInt	11	# number declarator
+
+169:7155					# no operation
+
+# Program End

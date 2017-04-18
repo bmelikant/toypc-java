@@ -1,0 +1,298 @@
+package ToyVM;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.DataInputStream;
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import javax.swing.JFrame;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JTextArea;
+
+public class MachineInterface extends JFrame implements ActionListener,
+Runnable {
+	
+	private static final long serialVersionUID = 1L;
+	
+	// display mode constants
+	private int [] rows = { 20, 25, 40  };
+	private int [] cols = { 40, 80, 100 };
+	
+	// member variables
+	private JTextArea   machineConsole;
+	private JMenuBar    topMenu;
+	private JMenu       optionList;
+	private JMenuItem   powerItem, resetItem;
+	
+	// primitive variables
+	private boolean threadLives;
+	private int currentVMode;
+	
+	// machine control thread
+	private Thread machineThread;
+	private MachineSettings settings;
+	
+	// ToyProcessor instance
+	private ToyProcessor mainProcessor;
+	private KeyboardController keyCtrl;
+	private SystemClock sysClock;
+	private DiskController diskCtrlOne, diskCtrlTwo;
+	
+	// public MachineInterface () constructor method
+	public MachineInterface (String machineName, File settingsFile) {
+		
+		// initialize our thread to dead and our processor to 32k of memory
+		threadLives = false;
+		currentVMode = 0x01;
+		
+		// set up a processor that does NOT run in debug mode EVER!!!
+		mainProcessor = new ToyProcessor (0x8000, false);
+		mainProcessor.storeMemory ((short) currentVMode, 0x2000);
+	
+		// Revision for new version. Yes, I said the last version was the final one but hey, I changed
+		// my mind. This settings file now HAS to exist because it is passed in from the machine chooser
+		// dialog. The machine chooser will alert if the settings file does not exist when the machine
+		// is started.
+		
+		// load the existing file			
+		settings = MachineSettings.loadSettings(settingsFile);
+			
+		// load the BIOS file and, if they exist, the disk controllers
+		if (settings.getBiosFile () == null)
+			JOptionPane.showMessageDialog(this, "Warning: No BIOS file has been specified!\nNo BIOS will be loaded.");
+		else
+			loadBiosCode (settings.getBiosFile());
+			
+		if (settings.getDiskControllerOnePath() != null) {
+			
+			diskCtrlOne = new DiskController (mainProcessor, (short) 0x1F0);
+			diskCtrlOne.setRefMachine(mainProcessor);
+			diskCtrlOne.setDiskFile(settings.getDiskControllerOnePath ());
+			System.out.println ("Loaded disk one...");
+			
+			mainProcessor.reservePortRange(diskCtrlOne, (short) 0x1F0, (short) 3);
+		}
+			
+		if (settings.getDiskControllerTwoPath() != null) {
+
+			diskCtrlTwo = new DiskController (mainProcessor, (short) 0x2F0);
+			diskCtrlTwo.setRefMachine(mainProcessor);
+			diskCtrlTwo.setDiskFile(settings.getDiskControllerTwoPath ());
+			System.out.println ("Loaded disk two...");
+			
+			mainProcessor.reservePortRange(diskCtrlTwo, (short) 0x2F0, (short) 3);
+		}
+		
+		// set up the keyboard controller with default mappings
+		keyCtrl  = new KeyboardController (mainProcessor, (short) 0xF0);
+		sysClock = new SystemClock (mainProcessor, 0xFA);
+		
+		mainProcessor.reservePortRange(keyCtrl, (short) 0xf0, (short) 3);
+		mainProcessor.reservePortRange(sysClock, (short) 0xfa, (short) 2);
+		
+		// initialize the controls
+		machineConsole = new JTextArea   ();
+		
+		// add the keyboard controller as our key listener
+		machineConsole.addKeyListener(keyCtrl);
+		
+		// set up the menus
+		topMenu         = new JMenuBar ();
+		optionList      = new JMenu ("Options");
+		powerItem         = new JMenuItem ("Power Off");
+		resetItem         = new JMenuItem ("Reset Machine");
+		
+		optionList.add (powerItem);
+		optionList.add (resetItem);
+		
+		// add the lists to the topMenu
+		topMenu.add (optionList);
+		
+		// set up the menu for this window
+		this.setJMenuBar (topMenu);
+		
+		add (machineConsole, BorderLayout.CENTER);
+		
+		// set up actionListeners
+		powerItem.addActionListener (this);
+		resetItem.addActionListener (this);
+		
+		// set up font for console window
+		machineConsole.setEditable (false);
+		machineConsole.setFont (new Font ("Courier New", Font.PLAIN, 12));
+		machineConsole.setRows (25);
+		machineConsole.setColumns (80);
+		machineConsole.setBackground(Color.BLACK);
+		machineConsole.setForeground(Color.WHITE);
+		machineConsole.grabFocus();
+		
+		// set up video memory
+		for (int i = 0; i < 2000; i++)		
+			mainProcessor.storeMemory((short) ' ', i+0x1000); 
+	
+		// open the window and set everything up
+		pack ();
+		setResizable (false);
+		setDefaultCloseOperation (JFrame.DISPOSE_ON_CLOSE);
+		setTitle(machineName + " (Toy Virtual Machine v3.0)");
+		setVisible (true);
+		
+		mainProcessor.turnDebugModeOn();
+		threadLives = true;
+		Thread machineThread = new Thread(this);
+		machineThread.start ();
+	}
+
+	// public void updateDisplay (): Read the display memory and place it's contents
+	// in the display area
+	public void updateDisplay () {
+		
+		String displayUpdate = "";
+		short [] displayRegion = mainProcessor.getMemoryRegion (0x1000, 0x1000+(rows[currentVMode]*cols[currentVMode]));
+		
+		for (int i = 0; i < rows[currentVMode]; i++) {
+			
+			for (int j = 0; j < cols[currentVMode]; j++)
+				displayUpdate += (char) displayRegion[(i*cols[currentVMode])+j];
+			
+			displayUpdate += '\n';
+		}
+		
+		machineConsole.setText (displayUpdate);
+		
+		// check for a mode change
+		int newMode = mainProcessor.getMemory (0x2000);
+		
+		if (newMode != currentVMode && newMode < rows.length) {
+			
+			currentVMode = newMode;
+			machineConsole.setRows(rows[currentVMode]);
+			machineConsole.setColumns(cols[currentVMode]);
+			machineConsole.setText ("");
+			pack ();
+		}
+	}
+	
+	// run method for thread
+	public void run () {
+		
+		// declare an update counter for the display
+		// int updateCounter = 0;
+		int updateCounter = 0;
+		
+		while (threadLives) {
+			
+			// fetch and process the opcode. On processOpcode = true
+			// we have received the stop signal
+			mainProcessor.fetchOpcode ();
+			
+			if (mainProcessor.processOpcode() == false)
+				threadLives = false;
+			
+			sysClock.updateTsc();
+			
+			if (updateCounter <= 0) {
+				
+				updateDisplay ();
+				
+				keyCtrl.update ();
+				sysClock.update ();
+				
+				updateCounter = 10;
+			}
+			
+			else {
+				
+				updateCounter--;
+			}
+		}
+		
+		updateDisplay ();
+		keyCtrl.update ();
+		sysClock.update ();
+		
+		System.out.println ("Processor finished execution.");
+	}
+	
+	// method to load a program from a file (for debug running)
+	// CUT FOR FINAL RELEASE SINCE IT WAS ADDED IN THE DEBUG VERSION!
+	
+	// public void loadBiosCode (File toLoad): load the BIOS file for this machine
+	public void loadBiosCode (File toLoad) {
+		
+		try {
+			
+			DataInputStream biosStream = new DataInputStream (new FileInputStream (toLoad));
+			short codeByte = biosStream.readShort ();
+			int i = 0x7000;
+			
+			try {
+				
+				while (true) {
+					
+					mainProcessor.storeMemory (codeByte, i++);
+					codeByte = biosStream.readShort ();
+				}
+				
+			} catch (EOFException exc) {
+				
+				System.out.println ("Loaded BIOS image...");
+				biosStream.close();
+				mainProcessor.setRegister (0x7000, ToyProcessor.constRegIP);
+			}
+			
+		} catch (IOException e) {
+			
+			JOptionPane.showMessageDialog(this, "File I/O Error: " + e.toString ());
+		}
+	}
+	
+	// action listener for this window
+	public void actionPerformed (ActionEvent e) {
+		
+		// if the start button was pressed control the machine's running state
+		if (e.getSource () == powerItem) {
+						
+			try {
+				
+				// stop the machine thread and wait for it to finish
+				threadLives = false;
+				
+				if (machineThread != null)
+					machineThread.join();
+				
+				dispose ();
+				
+			} catch (InterruptedException exc) {
+				
+				System.out.println ("Interrupted while waiting for machine to finish running!");
+				exc.printStackTrace ();
+			}
+		}
+		
+		// if we are supposed to load the test program load some test code
+		// into memory and adjust IP
+		// THIS CODE WAS STRIPPED FOR THE FINAL VERSION DUE TO THE ABILITY
+		// TO LOAD TEST PROGRAMS FROM THE DISK!!!
+		
+		// if we are showing the registers build a register dump string and
+		// make a message box
+		// STRIPPED FOR FINAL VERSION DUE TO BUILT-IN DEBUGGER ON ASSEMBLER!
+		
+		// if we are supposed to change the look and feel do so
+		// STRIPPED FOR FINAL VERSION DUE TO AUTOMATIC L&F SELECTION!
+		
+		// load a code file
+		// STRIPPED FOR FINAL VERSION BECAUSE THE SETTINGS FILE TAKES CARE OF EVERYTHING!
+		
+		machineConsole.grabFocus();
+	}
+}
+
